@@ -1,0 +1,4 @@
+*.log
+*.pyc
+result
+log
