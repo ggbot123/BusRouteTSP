@@ -7,7 +7,8 @@ FILENAME = './result/R-TSPwithSpeed.png'
 # 基本参数
 I = 5
 K = 10
-N = 3
+K_ini = 2
+N = 6
 # 背景信号参数
 C = 100
 J = np.array([[[1, 2, 3, 4], [6, 5, 7, 8]], 
@@ -25,6 +26,7 @@ T_opt = np.array([[[19, 40, 16, 25], [44, 15, 19, 22]],
                   [[19, 48, 20, 13], [51, 16, 20, 13]],
                   [[42, 22, 20, 16], [48, 16, 26, 10]],
                   [[42, 21, 27, 10], [15, 48, 16, 21]]])
+t_opt = np.insert(np.delete(T_opt, -1, axis=2), 0, 0, axis=2).cumsum(axis=2)
 assert np.array_equal(T_opt.sum(axis=2), np.ones(T_opt.shape[0:2]) * C), "相位时长与信号周期不相同\n"
 t_opt = np.insert(np.delete(T_opt, -1, axis=2), 0, 0, axis=2).cumsum(axis=2)
 OF = np.array([0, 59, 56, 16, 61]).cumsum()
@@ -45,7 +47,10 @@ S_ij = np.array([[1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
                  [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
                  [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000]])
 # 公交车站位置(m)
-POS_stop = [200/2, 200+350/2, 200+350+320/2, 200+350+320+560/2, 200+350+320+560+670/2, 200+350+320+560+670+200/2]
+POS_stop = np.array([200/2, 200+350/2, 200+350+320/2, 200+350+320+560/2, 200+350+320+560+670/2, 200+350+320+560+670+200/2])
+# 公交初始位置
+INI = -10000
+p_bus_0 = [2000, 600, INI, INI, INI, INI]
 L_app = POS - POS_stop[:I]
 L_dep = POS_stop[1:] - POS
 # 到站时刻表(不包括首发站)
@@ -53,8 +58,9 @@ v_avg = 12
 t_arr_plan = np.zeros([N, I])
 for n in range(N):
     # 发车时刻表
-    H = 4*60
-    T_dep_0 = np.arange(200, 200 + N*H, H)
+    H = 2*60
+    # T_dep_0 = np.arange(200, 200 + N*H, H)
+    T_dep_0 = np.arange(-p_bus_0[0]/v_avg, -p_bus_0[0]/v_avg + N*H, H)
     t_arr_plan[n] = T_dep_0[n] + np.array((L_app + L_dep)/v_avg).cumsum()
 # 公交最大车速(m/s)
 v_max = 15
@@ -62,6 +68,8 @@ v_max = 15
 Q_ij = 0
 # 辅助变量
 M = 100000
+
+
 
 if __name__ == '__main__':
     # 创建一个新的模型 调用内置函数Model()创建模型
@@ -97,7 +105,7 @@ if __name__ == '__main__':
     for i in range(I):
         for k in range(K):
             for j in np.concatenate((J[i][0], J[i][1])):
-                t[i, j, k] = model.addVar(name=f't{i}{j}{k}')
+                t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=-K_ini*C)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}')
                 # 初始解
@@ -127,35 +135,54 @@ if __name__ == '__main__':
                 for j_ind in range(len(J[i][l])):
                     # Ring-Barrier结构约束
                     j = J[i][l][j_ind]
-                    if j in J_first[i] and k == 0:
-                        # 信号起始时刻（各交叉口local time）
-                        model.addConstr(t[i, j, k] == 0)                    
-                    if j not in J_last[i]:
-                        j_next = J[i][l][j_ind + 1]
-                        model.addConstr(t[i, j_next, k] == t[i, j, k] + g[i, j, k] + YR)
+                    # 0~K_ini周期，采用原有的信号配时
+                    if k < K_ini:
+                        model.addConstr(t[i, j, k] == -(K_ini - k)*C + t_opt[i][l][j_ind])
+                        model.addConstr(g[i, j, k] == T_opt[i][l][j_ind] - YR)
                     else:
-                        j_next = J[i][l][0]
-                        if k == K - 1:
-                            model.addConstr(t[i, j, k] + g[i, j, k] + YR == K*C)
+                        if j in J_first[i] and k == K_ini:
+                            # 信号起始时刻（各交叉口local time）
+                            model.addConstr(t[i, j, k] == 0)                    
+                        if j not in J_last[i]:
+                            j_next = J[i][l][j_ind + 1]
+                            model.addConstr(t[i, j_next, k] == t[i, j, k] + g[i, j, k] + YR)
                         else:
-                            model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)                    
-                    if j in J_barrier[i][0]:
-                        j_oth = J_barrier[i][1][np.where(J_barrier[i][0] == j)][0]
-                        model.addConstr(t[i, j, k] == t[i, j_oth, k])                   
-                    # 目标函数辅助约束
-                    model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
-                    model.addConstr(y[i, j, k] >= 0)
-                    # print(V_ij[i][j_ind]*C/(S_ij[i][j_ind]*Xc))
-                    # 最小绿时约束
-                    model.addConstr(g[i, j, k] >= G_min)
-                    model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
+                            j_next = J[i][l][0]
+                            if k == K - 1:
+                                model.addConstr(t[i, j, k] + g[i, j, k] + YR == (K - K_ini)*C)
+                            else:
+                                model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)                    
+                        if j in J_barrier[i][0]:
+                            j_oth = J_barrier[i][1][np.where(J_barrier[i][0] == j)][0]
+                            model.addConstr(t[i, j, k] == t[i, j_oth, k])                   
+                        # 目标函数辅助约束
+                        model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
+                        model.addConstr(y[i, j, k] >= 0)
+                        # print(V_ij[i][j_ind]*C/(S_ij[i][j_ind]*Xc))
+                        # 最小绿时约束
+                        model.addConstr(g[i, j, k] >= G_min)
+                        model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
 
                     
 
     # 公交运行过程约束
     for n in range(N):
-        model.addConstr(t_arr[n, 0] == T_dep_0[n])
-        for i in range(I):
+        # 初始化
+        nextStopInd = np.where(p_bus_0[n] < POS_stop)[0][0] # 下一站点索引，若后面无站点，该车将不会进入算法
+        nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
+        # case 1：还没发车
+        if p_bus_0[n] == INI:
+            model.addConstr(t_arr[n, 0] == T_dep_0[n])
+        # case 2：处于交叉口-下一站点之间
+        elif nextIntInd == nextStopInd:
+            model.addConstr(t_arr[n, nextStopInd] == T_dep[n, nextStopInd])
+            model.addConstr(T_dep[n, nextStopInd] >= (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
+        # case 3: 处于上一站点-交叉口之间
+        else:
+            model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd])
+            model.addConstr(T_app[n, nextIntInd] >= (POS[nextIntInd] - p_bus_0[n])/v_max)
+
+        for i in range(nextIntInd, I):
             # 公交行驶时间模型约束
             model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i])
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
@@ -185,12 +212,11 @@ if __name__ == '__main__':
             model.addConstr(t_dev[n, i] >= t_arr[n, i + 1] - t_arr_plan[n][i])
             model.addConstr(t_dev[n, i] >= -(t_arr[n, i + 1] - t_arr_plan[n][i]))
             
-
-
     # 执行优化函数
     model.optimize()
 
     # 检查求解状态
+    # model.write('./log/BusRouteTSP.lp')
     if model.status == gb.GRB.OPTIMAL:
         # 打印最优解
         # print('最优解是:')
@@ -200,25 +226,31 @@ if __name__ == '__main__':
         #             print(f'y{i}{j}{k}: {y[i, j, k].x}')
         #             print(f't{i}{j}{k}: {t[i, j, k].x}')
         #             print(f'g{i}{j}{k}: {g[i, j, k].x}')
-        # for n in range(N):
-        #     for i in range(I + 1):    
-        #         print(f't_arr{n}{i}: {t_arr[n, i].x}')
+        for n in range(N):
+            for i in range(I + 1):    
+                print(f't_arr{n}{i}: {t_arr[n, i].x}')
         print('社会车辆目标函数值:\n%s\n', sum(y[i, j, k].x for i in range(I) for j in range(1, 9) for k in range(K)))
         print('公交车辆目标函数值:\n%s\n', sum(t_dev[n, i].x for i in range(I) for n in range(N)))
         # 绘制信号方案&公交车辆轨迹图
         T_sol = np.zeros([K] + list(J.shape))
-        Traj_sol = np.array([])
+        Traj_sol = [[[], []] for _ in range(N)]
         for k in range(K):
             for i in range(I):    
                 T_sol[k][i] = np.array([g[i, j, k].x + YR for j in np.concatenate((J[i][0], J[i][1]))]).reshape(J[i].shape)
         for n in range(N):
             traj_t, traj_x = [], []
-            for i in range(I):
+            nextStopInd = np.where(p_bus_0[n] < POS_stop)[0][0] # 下一站点索引，若后面无站点，该车将不会进入算法
+            nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
+            if p_bus_0[n] != INI:
+                traj_t += [0]
+                traj_x += [p_bus_0[n]]
+            for i in range(nextStopInd, I):
                 traj_t += [t_arr[n, i].x, t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x-T_dep[n, i].x]
                 traj_x += [POS_stop[i], POS[i], POS[i]]
             traj_t += [t_arr[n, I].x]
             traj_x += [POS_stop[I]]
-            Traj_sol = np.append(Traj_sol, [traj_t, traj_x])
-        plotTSTP(FILENAME, J, T_sol, np.concatenate((T_dep_0.reshape([N, -1]), t_arr_plan), axis=1), Traj_sol.reshape([N, 2, -1]), 2)
+            Traj_sol[n][0] = np.append(Traj_sol[n][0], traj_t)
+            Traj_sol[n][1] = np.append(Traj_sol[n][1], traj_x)
+        plotTSTP(FILENAME, J, T_sol, np.concatenate((T_dep_0.reshape([N, -1]), t_arr_plan), axis=1), Traj_sol, 2)
     else:
         print('未找到最优解。')

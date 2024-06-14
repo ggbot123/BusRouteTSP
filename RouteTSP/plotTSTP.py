@@ -4,7 +4,10 @@ import numpy as np
 def plotTSTP(FILENAME, J, T_opt_K, t_arr_plan, traj_bus, selected_phase):
     # 示例输入参数
     I = T_opt_K.shape[1] # 交叉口数量
-    N = traj_bus.shape[0]
+    N = t_arr_plan.shape[0]
+    K_ini = 2
+    K = T_opt_K.shape[0]
+    C0 = 100
     t_opt_K = np.insert(np.delete(T_opt_K, -1, axis=3), 0, 0, axis=3).cumsum(axis=3)
     # assert np.array_equal(T_opt.sum(axis=2), np.ones(T_opt.shape[0:2]) * C), "相位时长与信号周期不相同\n"
     OF = np.array([0, 59, 56, 16, 61]).cumsum()
@@ -15,7 +18,7 @@ def plotTSTP(FILENAME, J, T_opt_K, t_arr_plan, traj_bus, selected_phase):
     # 时间轴的范围（秒）
     time_end = 100*10  # 可以根据需要调整时间范围
     time_step_size = 1
-    time_steps = range(0, time_end, time_step_size)  # 时间步
+    time_steps = range(-K_ini*C0, time_end, time_step_size)  # 时间步
     
     # 绘制每个交叉口的信号灯变化
     plt.subplots(figsize=(10, 6))
@@ -23,8 +26,6 @@ def plotTSTP(FILENAME, J, T_opt_K, t_arr_plan, traj_bus, selected_phase):
         for l in range(J[i].shape[0]):
             if selected_phase in J[i][l]:
                 for t in time_steps: 
-                    if t == 268:
-                        pass
                     if len(T_opt_K.shape) == 4:
                         C = np.array(T_opt_K.sum(axis=3)[:, i, 0]).cumsum()
                         k = np.where(t - OF[i] <= C)[0][0]
@@ -52,6 +53,9 @@ def plotTSTP(FILENAME, J, T_opt_K, t_arr_plan, traj_bus, selected_phase):
         plt.plot(traj_bus[n][0], traj_bus[n][1], color='b')
         plt.scatter(t_arr_plan[n], POS_stop, color='b', marker='*')
 
+    plt.plot([0, 0], [0, POS_stop[-1]], linestyle='--', color='k')
+    plt.plot([(K-K_ini)*C0, (K-K_ini)*C0], [0, POS_stop[-1]], linestyle='--', color='k')
+    # plt.grid(True)
     plt.xlabel('time(s)')
     plt.ylabel('distance(m)')
     plt.title('Traffic Signal Timing Plan')
