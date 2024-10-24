@@ -34,7 +34,7 @@ def generate_net():
     write_file('./Scenario/exp.con.xml', connectionGen.output_connections(con))
 
     # tll.xml file
-    tls = '  <tlLogic id="%s" programID="0" offset="0" type="static">\n' 
+    tls = '  <tlLogic id="%s" programID="0" offset="%s" type="static">\n' 
     phase = '    <phase duration="%d" state="%s"/>\n'
     write_file('./Scenario/exp.tll.xml', signalTimingGen.output_tls(tls, phase))
 
@@ -56,7 +56,7 @@ def generate_add():
     str_adds = '<additional>\n'
 
     stops = '   <busStop id="%s" lane="%s" color="blue" startPos="%f" endPos="%f" line="%s"/>\n'
-    trip = '   <trip id="%s" type="BUS" depart="%f" from="%s" to="%s">\n'
+    trip = '   <trip id="%s" type="BUS" depart="%f" departPos="%f" from="%s" to="%s">\n'
     trip_stops = '      <stop busStop="%s" duration="%f"/>\n'
     person = '   <person id="%s" depart="%f" departPos="%f" type="PED">\n'
     person_walks = '      <walk from="%s" busStop="%s"/>\n'
@@ -67,8 +67,8 @@ def generate_add():
     write_file('./Scenario/exp.add.xml', str_adds)
 
 def main():
-    # generate_net()
-    # generate_route()
+    generate_net()
+    generate_route()
     generate_add()
 
     # config file
