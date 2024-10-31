@@ -103,13 +103,17 @@ def round_and_adjust(arr, N):
     row2_sum = np.sum(rounded_arr[1, :2])
     row_diff = row1_sum - row2_sum
 
-    # 调整前两个元素的和使其相等
-    if row_diff != 0:
-        adjustment = row_diff // 2
-        rounded_arr[0, 0] -= adjustment
-        rounded_arr[0, 1] -= (row_diff - adjustment)
+    adjustment = abs(row_diff) // 2
+    # 如果前两个元素的和不相等
+    if row_diff > 0:
+        rounded_arr[0, 0] -= (adjustment + 1)
         rounded_arr[1, 0] += adjustment
-        rounded_arr[1, 1] += (row_diff - adjustment)
+        rounded_arr[0, -1] += 1
+    elif row_diff < 0:
+        rounded_arr[0, 0] += adjustment
+        rounded_arr[1, 0] -= (adjustment + 1)
+        rounded_arr[1, -1] += 1
+
 
     return rounded_arr
 
