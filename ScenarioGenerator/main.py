@@ -26,7 +26,7 @@ def generate_net():
     write_file('./Scenario/exp.typ.xml', roadTypeGen.output_road_types())
 
     # edg.xml file
-    edge = '  <edge id="%s" from="%s" to="%s" type="a"/>\n'
+    edge = '  <edge id="%s" from="%s" to="%s" type="%s"/>\n'
     write_file('./Scenario/exp.edg.xml', edgeGen.output_edges(edge))
 
     # con.xml file

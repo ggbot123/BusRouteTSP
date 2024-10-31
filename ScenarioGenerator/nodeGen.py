@@ -4,7 +4,7 @@ import numpy as np
 # posJunc = [500, 350, 320, 560, 670]
 posJunc = [500, 700, 640, 560, 670]
 L_in, L0, L1, L2, L3 = posJunc
-L_end = 200
+L_end = 500
 
 #定义节点node
 def output_nodes(node):

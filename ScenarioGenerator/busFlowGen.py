@@ -5,6 +5,7 @@ BUS_DEP_PERIOD = 2*60
 BUS_DEP_ERR_STD = 0
 BUS_DURATION = 0
 POS_FIRST_STOP = 0
+BUS_DEP_START = 800
 
 def output_busFlow(trips, stops):
     str_adds = '   <vType id="BUS" vClass="bus" accel="2.6" decel="4.5" sigma="0" length="12" minGap="1" maxSpeed="70" color="red" guiShape="bus"/>\n'

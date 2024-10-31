@@ -1,5 +1,13 @@
-posSet = [[250, 175, 160, 280, 335, 250],
-          [250, 335, 280, 160, 175, 250]]
+import sys
+rootPath = r'E:\workspace\python\BusRouteTSP'
+sys.path.append(rootPath)
+from ScenarioGenerator.nodeGen import posJunc
+
+posJunc = posJunc + [500]
+posSet = [[pos/2 for pos in posJunc],
+          [pos/2 for pos in posJunc[::-1]]]
+# print(f"posset:{posSet}")
+
 def output_busStops(stops): 
     str_adds = ""
     #（基本）等间距分布，站点间距420m
