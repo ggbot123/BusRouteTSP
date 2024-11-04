@@ -34,7 +34,7 @@ def output_flows(flow):
         for j in range(len(edges)):
             prob = OD_volume.loc[edges[j][0], edges[j][1]]/3600
             if prob >= 0.001:
-                str_flows += flow % (str(j) + '_' + str(i), edges[j][0], edges[j][1], t_begin, t_end, prob)
+                str_flows += flow % (str(j) + '_' + str(i), edges[j][0], edges[j][1], t_begin, t_end, 'free', prob)
             # print(prob)
             # if edges[j][0] == from_edges[0] or edges[j][0] == from_edges[-1]:
                 # str_flows += flow % (str(j) + '_' + str(i), edges[j][0], edges[j][1], t_begin, t_end, 0.015)

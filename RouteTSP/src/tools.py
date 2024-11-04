@@ -7,6 +7,7 @@ rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 from ScenarioGenerator.nodeGen import posJunc
 from tqdm import tqdm
+from bisect import bisect_left
 
 # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
@@ -97,9 +98,13 @@ def getIndfromId(type, id):
     else:
         return int(id)
     
-def savePlan(timeStep, tlsPlan, busArrTimePlan):
+def getBusOrder(busId, arr):
+    order = bisect_left(arr, busId)
+    return order
+    
+def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):
     # 定义要保存的文件路径
-    file_path = f"{rootPath}\\optimizer_output.txt"
+    file_path = f"{rootPath}\\RouteTSP\\result\\optimizer_output{cnt}.txt"
     # 保存一系列数据到txt文件
     with open(file_path, 'w') as f:
         f.write(f"Record\n")
@@ -113,8 +118,9 @@ def savePlan(timeStep, tlsPlan, busArrTimePlan):
 
         # 保存busArrTimePlan
         f.write("busArrTimePlan:\n")
-        np.savetxt(f, busArrTimePlan)
-        f.write("\n---\n")  # 用---分隔每一组数据
+        for plan in busArrTimePlan:
+            np.savetxt(f, plan, fmt='%.1f', delimiter=', ')
+            f.write("\n---\n")  # 用---分隔每一组数据
     print(f"Data series saved to {file_path}")
 
 def readPlan():

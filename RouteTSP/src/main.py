@@ -10,7 +10,7 @@ import datetime
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import *
+from tools import getSumoTLSProgram, getIndfromId, myplot, savePlan, getBusOrder
 from optimize import optimize
 
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -19,38 +19,30 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 1000
+SIM_TIME = 3600
 SIM_STEP = 1
 UPPER_CONTROL_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_STEP = 300
-PLAN_START = 1000
-BUS_DEP_INI = 0
+PLAN_START = 10
+BUS_DEP_INI = 800
 MIN_STOP_DUR = 5
-PER_BOARD_DUR = 2
+PER_BOARD_DUR = 3
 PLANNED_BUS_NUM = 6
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 2
 BG_CYCLE_LEN = 100
-BG_PHASE_SEQ = np.array([[[1, 2, 3, 4], [6, 5, 7, 8]], 
-                         [[2, 1, 4, 3], [5, 6, 8, 7]],
-                         [[1, 2, 4, 3], [6, 5, 8, 7]],
-                         [[2, 1, 4, 3], [6, 5, 8, 7]],
-                         [[2, 1, 4, 3], [5, 6, 7, 8]]])
-BG_PHASE_LEN = np.array([[[19, 40, 16, 25], [44, 15, 19, 22]],
-                         [[44, 16, 29, 11], [11, 49, 22, 18]],
-                         [[19, 48, 20, 13], [51, 16, 20, 13]],
-                         [[42, 22, 20, 16], [48, 16, 26, 10]],
-                         [[42, 21, 27, 10], [15, 48, 16, 21]]])
+BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
+BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
+OFFSET = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
+YR = 4  # 损失时间
 BG_PHASE_SPLIT = np.insert(np.delete(BG_PHASE_LEN, -1, axis=2), 0, 0, axis=2).cumsum(axis=2)
 FIRST_PHASE = BG_PHASE_SEQ[:, :, 0]
 LAST_PHASE = BG_PHASE_SEQ[:, :, -1]
 BAR_PHASE = BG_PHASE_SEQ[:, :, [0, 2]]
 COORD_PHASE = [2, 6]
 BUS_PHASE = [2]
-OFFSET = np.array([0, 59, 56, 16, 61]).cumsum()
-YR = 4  # 损失时间
-G_MIN = 10  # 最小绿灯时间
+G_MIN = 8  # 最小绿灯时间
 COEFF_XC = 0.9  # 临界饱和系数
 INI = -10000
 POS_JUNC = np.array(posJunc).cumsum()
@@ -203,15 +195,15 @@ class sumoEnv:
                      'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
                     }
         inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
-        inputDict['S_ij'] = np.array([[1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
-                                      [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
-                                      [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
-                                      [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000],
-                                      [1550, 2000, 1550, 2000, 1550, 2000, 1550, 2000]])
+        inputDict['S_ij'] = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800]])
         inputDict['p_bus_0'] = np.array([bus.pos[0] for bus in sumoEnv.runningBusListSorted] + [-10000]*(PLANNED_BUS_NUM - len(sumoEnv.runningBusDict)))
         # TODO: 适应更一般的情况，例如当0车抛锚时，minRunningInd = 0，而maxRunningInd可能大于目前路上行驶的公交总数
-        minRunningInd = getIndfromId('bus', (min(sumoEnv.runningBusDict)))
-        maxRunningInd = getIndfromId('bus', (max(sumoEnv.runningBusDict)))
+        minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
+        maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
         # 注：隐含意思是不区分完成时刻表的具体车辆，即发生超车时前后车时刻表也要交换
         inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:minRunningInd + PLANNED_BUS_NUM, :] - timeStep
         inputDict['T_dep_0'] = np.concatenate([np.array([(POS_STOP[0] - sumoEnv.runningBusDict[str(busId)].pos[0])/V_AVG
@@ -235,14 +227,16 @@ class sumoEnv:
         for i, bus in enumerate(sumoEnv.runningBusListSorted):
             bus.updatePlan(i)
         # 记录优化模型输出
-        # savePlan(timeStep, sumoEnv.tlsPlan, sumoEnv.busArrTimePlan)
+        savePlan(timeStep, sumoEnv.tlsPlan, sumoEnv.busArrTimePlan, int(timeStep/(SIM_STEP*PLAN_STEP)))
 
     def upperControl(self, timeStep):
         for busId, bus in sumoEnv.runningBusDict.items():
             # TODO: 适应更一般的情形
             # 对于新生成的尚无计划的公交，更新其计划
-            if bus.nextUpdatePos is None and getIndfromId('bus', busId) <= len(sumoEnv.busArrTimePlan) - 1:
-                bus.updatePlan(getIndfromId('bus', busId))
+            if bus.nextUpdatePos is None:
+                planInd = getBusOrder(busId, [bus.id for bus in sumoEnv.runningBusListSorted])
+                if planInd < len(sumoEnv.busArrTimePlan):
+                    bus.updatePlan(planInd)
             # 对于已有计划的公交，检查是否该更新参考速度
             if bus.nextUpdatePos is not None and bus.pos[0] >= bus.nextUpdatePos:
                 bus.upperControl()
@@ -271,10 +265,12 @@ if __name__ == '__main__':
 
     for step in tqdm(range(SIM_TIME)):
         timeStep = SIM_STEP*step
-        if timeStep == 241:
+
+        if timeStep == 1200:
             pass
+
         env.update(traci.vehicle.getIDList(), timeStep)
-        if step > PLAN_START and (step - PLAN_START) % PLAN_STEP == 0:
+        if step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0:
             print("Planning...\n")
             env.plan(timeStep)
         if step % UPPER_CONTROL_STEP == 0:
@@ -285,5 +281,5 @@ if __name__ == '__main__':
 
     env.record()
     print("Ploting...\n")
-    plot(POS_JUNC, BUS_PHASE[0])
+    myplot(POS_JUNC, BUS_PHASE[0])
     traci.close()

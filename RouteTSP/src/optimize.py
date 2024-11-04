@@ -85,7 +85,7 @@ def optimize(**kwargs):
                     else:
                         if j in J_first[i] and k == K_ini:
                             # 信号起始时刻（各交叉口local time）
-                            model.addConstr(t[i, j, k] == 0)                    
+                            model.addConstr(t[i, j, k] == 0)
                         if j not in J_last[i]:
                             j_next = J[i][l][j_ind + 1]
                             model.addConstr(t[i, j_next, k] == t[i, j, k] + g[i, j, k] + YR)
@@ -94,7 +94,7 @@ def optimize(**kwargs):
                             if k == K - 1:
                                 model.addConstr(t[i, j, k] + g[i, j, k] + YR == (K - K_ini)*C)
                             else:
-                                model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)                    
+                                model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)
                         if j in J_barrier[i][0]:
                             j_oth = J_barrier[i][1][np.where(J_barrier[i][0] == j)][0]
                             model.addConstr(t[i, j, k] == t[i, j_oth, k])                   
@@ -103,8 +103,8 @@ def optimize(**kwargs):
                         model.addConstr(y[i, j, k] >= 0)
                         # print(V_ij[i][j_ind]*C/(S_ij[i][j_ind]*Xc))
                         # 最小绿时约束
-                        model.addConstr(g[i, j, k] >= G_min)
-                        model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
+                        # model.addConstr(g[i, j, k] >= G_min)
+                        # model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
 
                     
 
@@ -170,8 +170,18 @@ def optimize(**kwargs):
             traj_t, traj_x = [], []
             nextStopInd = np.where(p_bus_0[n] < POS_stop)[0][0] # 下一站点索引，若后面无站点，该车将不会进入算法
             nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
-            traj_t += [0] if p_bus_0[n] != INI else [T_dep_0[n]-(POS_stop[0]/v_avg), T_dep_0[n]]
-            traj_x += [p_bus_0[n]] if p_bus_0[n] != INI else [0, POS_stop[0]]
+            # 边界条件处理
+            if nextStopInd != 0:
+                traj_t += [0]
+                traj_x += [p_bus_0[n]]
+            else:
+                if p_bus_0[n] == INI:
+                    traj_t += [T_dep_0[n]-(POS_stop[0]/v_avg), T_dep_0[n]]
+                    traj_x += [0, POS_stop[0]]
+                else:
+                    traj_t += [0, t_arr[n, 0].x]
+                    traj_x += [p_bus_0[n], POS_stop[0]]
+            # 填写traj
             for i in range(nextIntInd, I):
                 if d_[n, i].x <= 0:
                     traj_t += [t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x]

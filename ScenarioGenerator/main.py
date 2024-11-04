@@ -47,7 +47,7 @@ def generate_net():
 def generate_route():
     # raw.rou.xml file
     # flow = '  <flow id="f_%s" from="%s" to="%s" begin="%d" end="%d" vehsPerHour="%f" type="type1"/>\n'
-    flow = '  <flow id="f_%s" from="%s" to="%s" begin="%d" end="%d" probability="%.3f" type="type1"/>\n'
+    flow = '  <flow id="f_%s" from="%s" to="%s" begin="%d" end="%d" departLane="%s" probability="%.3f" type="type1"/>\n'
     write_file('./Scenario/exp.raw.rou.xml', flowGen.output_flows(flow))
     os.system('duarouter -n ./Scenario/exp.net.xml -t ./Scenario/exp.raw.rou.xml -o ./Scenario/exp.rou.xml')
 
