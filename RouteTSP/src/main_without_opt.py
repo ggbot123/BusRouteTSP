@@ -78,8 +78,8 @@ class Bus(Vehicle):
                 # 设置停站时间
                 logging.info('[%s] %s\n' % (str(timeStep), str(sumoEnv.busStopDict)))
                 # 按人数停站
-                traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
-                # traci.vehicle.setBusStop(self.id, stopId, duration=0)
+                # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
+                traci.vehicle.setBusStop(self.id, stopId, duration=0)
                 self.atBusStop = stopId
             else:
                 # 注：每辆公交只经过每个站点1次

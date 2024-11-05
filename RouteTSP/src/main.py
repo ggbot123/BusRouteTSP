@@ -23,14 +23,13 @@ SIM_TIME = 3600
 SIM_STEP = 1
 UPPER_CONTROL_STEP = 1
 LOWER_CONTROL_STEP = 1
-PLAN_STEP = 300
 PLAN_START = 10
 BUS_DEP_INI = 800
 MIN_STOP_DUR = 5
 PER_BOARD_DUR = 3
 PLANNED_BUS_NUM = 6
 PLANNED_CYCLE_NUM = 10
-PAD_CYCLE_NUM = 2
+PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
 BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
 BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
@@ -55,6 +54,7 @@ V_MAX = 15
 TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
+PLAN_STEP = PLANNED_CYCLE_NUM*BG_CYCLE_LEN
 
 class Vehicle:
     def __init__(self, vehId, timeStep):
@@ -210,6 +210,11 @@ class sumoEnv:
                                                           for busId in range(minRunningInd, maxRunningInd + 1)]),
                                                           TIMETABLE[(maxRunningInd + 1):(minRunningInd + PLANNED_BUS_NUM), 0] - timeStep])
         inputDict['Q_ij'] = 0
+        if len(sumoEnv.tlsPlan) > 0:
+            inputDict['T_opt_plan'] = sumoEnv.tlsPlan[(PLANNED_CYCLE_NUM - PAD_CYCLE_NUM):, :, :, :]
+            inputDict['t_opt_plan'] = np.insert(np.delete(sumoEnv.tlsPlan, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
+        else:
+            inputDict['T_opt_plan'] = []
         return inputDict
 
     def plan(self, timeStep):
@@ -265,10 +270,6 @@ if __name__ == '__main__':
 
     for step in tqdm(range(SIM_TIME)):
         timeStep = SIM_STEP*step
-
-        if timeStep == 1200:
-            pass
-
         env.update(traci.vehicle.getIDList(), timeStep)
         if step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0:
             print("Planning...\n")

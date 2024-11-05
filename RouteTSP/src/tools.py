@@ -104,7 +104,7 @@ def getBusOrder(busId, arr):
     
 def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):
     # 定义要保存的文件路径
-    file_path = f"{rootPath}\\RouteTSP\\result\\optimizer_output{cnt}.txt"
+    file_path = f"{rootPath}\\RouteTSP\\result\\optimizer_output\\{cnt}.txt"
     # 保存一系列数据到txt文件
     with open(file_path, 'w') as f:
         f.write(f"Record\n")

@@ -13,6 +13,12 @@ def optimize(**kwargs):
     FILENAME = f'{rootPath}\\RouteTSP\\result\\Rolling\\%d.png' % cnt
     M = 100000
     INI = -10000
+    t_lb = -K_ini*C
+
+    if len(T_opt_plan) > 0:
+        t_ini = np.flip(T_opt_plan[:, :, 0, :].sum(axis=-1), axis=0).cumsum(axis=0)
+        t_lb = min([t_lb, -t_ini[-1][0]])
+
     # 创建一个新的模型 调用内置函数Model()创建模型
     model = gb.Model()
     model.setParam('OutputFlag', 0)
@@ -46,9 +52,9 @@ def optimize(**kwargs):
             T_dep[n, i].start = L_dep[i]/12
         t_arr[n, I] = model.addVar(name=f't_arr{n}{I}')
     for i in range(I):
-        for k in range(K):
+        for k in range(K + K_ini):
             for j in np.concatenate((J[i][0], J[i][1])):
-                t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=-K_ini*C)
+                t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}')
                 # 初始解
@@ -65,7 +71,7 @@ def optimize(**kwargs):
     objective_expr = gb.LinExpr()
     for i in range(I):
         for j in range(1, 9):
-            for k in range(K):
+            for k in range(K + K_ini):
                 objective_expr += w_c * y[i, j, k]
         for n in range(N):
             objective_expr += w_b * (t_dev[n, i] + 0.0001*d[n, i])
@@ -74,14 +80,18 @@ def optimize(**kwargs):
     # 设置约束
     for i in range(I):
         for l in [0, 1]:
-            for k in range(K):
+            for k in range(K + K_ini):
                 for j_ind in range(len(J[i][l])):
                     # Ring-Barrier结构约束
                     j = J[i][l][j_ind]
                     # 0~K_ini周期，采用原有的信号配时
                     if k < K_ini:
-                        model.addConstr(t[i, j, k] == -(K_ini - k)*C + t_opt[i][l][j_ind])
-                        model.addConstr(g[i, j, k] == T_opt[i][l][j_ind] - YR)
+                        if len(T_opt_plan) > 0:
+                            model.addConstr(t[i, j, k] == -t_ini[K_ini-k-1][0] + t_opt_plan[k][i][l][j_ind])
+                            model.addConstr(g[i, j, k] == T_opt_plan[k][i][l][j_ind] - YR)
+                        else:
+                            model.addConstr(t[i, j, k] == -(K_ini - k)*C + t_opt[i][l][j_ind])
+                            model.addConstr(g[i, j, k] == T_opt[i][l][j_ind] - YR)
                     else:
                         if j in J_first[i] and k == K_ini:
                             # 信号起始时刻（各交叉口local time）
@@ -91,8 +101,8 @@ def optimize(**kwargs):
                             model.addConstr(t[i, j_next, k] == t[i, j, k] + g[i, j, k] + YR)
                         else:
                             j_next = J[i][l][0]
-                            if k == K - 1:
-                                model.addConstr(t[i, j, k] + g[i, j, k] + YR == (K - K_ini)*C)
+                            if k == K + K_ini - 1:
+                                model.addConstr(t[i, j, k] + g[i, j, k] + YR == K*C)
                             else:
                                 model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)
                         if j in J_barrier[i][0]:
@@ -101,7 +111,6 @@ def optimize(**kwargs):
                         # 目标函数辅助约束
                         model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
                         model.addConstr(y[i, j, k] >= 0)
-                        # print(V_ij[i][j_ind]*C/(S_ij[i][j_ind]*Xc))
                         # 最小绿时约束
                         # model.addConstr(g[i, j, k] >= G_min)
                         # model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
@@ -130,7 +139,7 @@ def optimize(**kwargs):
             model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i])
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
             for j in J_bus:
-                for k in range(K):
+                for k in range(K + K_ini):
                     # 采用theta表征公交到达交叉口时刻对应的信号周期
                     if k > 0:
                         model.addConstr(r[n, i] >= OF[i] + t[i, j, k - 1] + g[i, j, k - 1] - (1 - theta[i, j, k, n])*M)
@@ -161,9 +170,9 @@ def optimize(**kwargs):
     # 检查求解状态
     # model.write('./log/BusRouteTSP.lp')
     if model.status == gb.GRB.OPTIMAL:
-        T_sol = np.zeros([K] + list(J.shape))
+        T_sol = np.zeros([K + K_ini] + list(J.shape))
         Traj_sol = [[[], []] for _ in range(N)]
-        for k in range(K):
+        for k in range(K + K_ini):
             for i in range(I):    
                 T_sol[k][i] = np.array([g[i, j, k].x + YR for j in np.concatenate((J[i][0], J[i][1]))]).reshape(J[i].shape)
         for n in range(N):
