@@ -10,8 +10,9 @@ import datetime
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, savePlan, getBusOrder
+from tools import getSumoTLSProgram, getIndfromId, myplot, savePlan, getBusOrder, RGY2J, getIniTlsCurr
 from optimize import optimize
+from optimize_test import optimize_test
 
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
@@ -19,7 +20,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 800
 SIM_STEP = 1
 UPPER_CONTROL_STEP = 1
 LOWER_CONTROL_STEP = 1
@@ -54,7 +55,9 @@ V_MAX = 15
 TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
-PLAN_STEP = PLANNED_CYCLE_NUM*BG_CYCLE_LEN
+# PLAN_STEP = PLANNED_CYCLE_NUM*BG_CYCLE_LEN
+PLAN_STEP = 1000
+
 
 class Vehicle:
     def __init__(self, vehId, timeStep):
@@ -129,32 +132,52 @@ class TrafficLight:
     tlsGlobal0Time = None
     def __init__(self, signalId):
         self.id = signalId
-        self.RGYplan = getSumoTLSProgram(BG_PHASE_SEQ[getIndfromId('tls', signalId)], np.array([BG_PHASE_LEN[getIndfromId('tls', signalId)]]), YR)
+        self.phaseSeq = BG_PHASE_SEQ[getIndfromId('tls', signalId)]
+        bgPhaseLen = np.array(BG_PHASE_LEN[getIndfromId('tls', signalId)])
+        self.RGYplan = getSumoTLSProgram(self.phaseSeq, np.expand_dims(bgPhaseLen, axis=0), YR)
         self.nextRGYplan = []
         self.RGYProfile = pd.Series()
         self.nextUpdate = None
         self.lastUpdate = 0
+        bgOffset = OFFSET[getIndfromId('tls', signalId)]
+        # 多补一个周期，避免后面调用出现空数组
+        self.kCurr = int((PAD_CYCLE_NUM*BG_CYCLE_LEN - bgOffset)/BG_CYCLE_LEN) + 1
+        self.tlsPlanAll = [bgPhaseLen for _ in range(self.kCurr)]
+        self.tlsPlanCurr = getIniTlsCurr(bgPhaseLen, -bgOffset % BG_CYCLE_LEN)
     def update(self, timeStep):
         self.curState = traci.trafficlight.getRedYellowGreenState(self.id)
         self.RGYProfile[timeStep] = self.curState
-    def getNextCycleTime(self, timeStep):
-        tEnd = 0
-        for RGYplanK in self.RGYplan:
-            tEnd += sum([phase[1] for phase in RGYplanK])
-            if (timeStep - self.lastUpdate) <= tEnd:
-                return tEnd - (timeStep - self.lastUpdate)
-    def updatePlan(self, timeStep):
-        if getIndfromId('tls', self.id) == 0:
-            TrafficLight.tlsGlobal0Time = timeStep + self.getNextCycleTime(timeStep)
-        self.nextUpdate = TrafficLight.tlsGlobal0Time + OFFSET[getIndfromId('tls', self.id)]
-        self.nextRGYplan = getSumoTLSProgram(BG_PHASE_SEQ[getIndfromId('tls', self.id)], sumoEnv.tlsPlan[:, getIndfromId('tls', self.id), :, :], YR)
+        self.recordTLS()
+    def recordTLS(self):
+        gPosInRGY = [i for i, char in enumerate(self.curState) if char == 'G' or char == 'y']
+        curPhase = np.unique(np.array([RGY2J[pos+1] for pos in gPosInRGY if (pos+1) in RGY2J]))
+        if np.array_equal(curPhase, self.phaseSeq[:, 0]) and (self.tlsPlanCurr[0, -1] > 0):
+            self.tlsPlanAll.append(self.tlsPlanCurr)
+            self.tlsPlanCurr = np.zeros([2, 4])
+            self.kCurr += 1
+        ind = np.where(np.isin(self.phaseSeq, list(curPhase)))
+        self.jInd = ind[1]
+        self.tlsPlanCurr[ind] += 1
+    # def getNextCycleTime(self, timeStep):
+    #     tEnd = 0
+    #     for RGYplanK in self.RGYplan:
+    #         tEnd += sum([phase[1] for phase in RGYplanK])
+    #         if (timeStep - self.lastUpdate) <= tEnd:
+    #             return tEnd - (timeStep - self.lastUpdate)
+    # def updatePlan(self, timeStep):
+    #     if getIndfromId('tls', self.id) == 0:
+    #         TrafficLight.tlsGlobal0Time = timeStep + self.getNextCycleTime(timeStep)
+    #     self.nextUpdate = TrafficLight.tlsGlobal0Time + OFFSET[getIndfromId('tls', self.id)]
+    #     self.nextRGYplan = getSumoTLSProgram(BG_PHASE_SEQ[getIndfromId('tls', self.id)], sumoEnv.tlsPlan[:, getIndfromId('tls', self.id), :, :], YR)
     def control(self, timeStep):
-        self.RGYplan = self.nextRGYplan.copy()
-        self.nextRGYplan = []
-        self.nextUpdate = None
-        self.lastUpdate = timeStep
+        self.RGYplan = getSumoTLSProgram(BG_PHASE_SEQ[getIndfromId('tls', self.id)], np.array(sumoEnv.tlsPlan[getIndfromId('tls', self.id)]), YR)
+        # self.RGYplan = self.nextRGYplan.copy()
+        # self.nextRGYplan = []
+        # self.nextUpdate = None
+        # self.lastUpdate = timeStep
         traci.trafficlight.setProgramLogic(self.id, (traci.trafficlight.Logic(
             'MRTSP', 0, 0, phases= [traci.trafficlight.Phase(RGY[1], RGY[0]) for RGYplanK in self.RGYplan for RGY in RGYplanK])))
+        traci.trafficlight.setPhase(self.id, 0)
 
 class sumoEnv:
     allBusDict = {}
@@ -178,6 +201,8 @@ class sumoEnv:
                 sumoEnv.runningBusDict.update({vehId: Bus(vehId, timeStep)})
             # 对于已存在的车辆，更新状态
             sumoEnv.runningBusDict[vehId].update(timeStep)
+            if sumoEnv.runningBusDict[vehId].pos[0] >= POS_STOP[-1]:
+                del sumoEnv.runningBusDict[vehId]
         sumoEnv.allBusDict.update(self.runningBusDict)
         for stopId in sumoEnv.busStopDict:
             sumoEnv.busStopDict[stopId].update(timeStep)
@@ -210,11 +235,28 @@ class sumoEnv:
                                                           for busId in range(minRunningInd, maxRunningInd + 1)]),
                                                           TIMETABLE[(maxRunningInd + 1):(minRunningInd + PLANNED_BUS_NUM), 0] - timeStep])
         inputDict['Q_ij'] = 0
-        if len(sumoEnv.tlsPlan) > 0:
-            inputDict['T_opt_plan'] = sumoEnv.tlsPlan[(PLANNED_CYCLE_NUM - PAD_CYCLE_NUM):, :, :, :]
-            inputDict['t_opt_plan'] = np.insert(np.delete(sumoEnv.tlsPlan, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
-        else:
-            inputDict['T_opt_plan'] = []
+
+        tlsPadT = []
+        tlsPadt = []
+        jCurrList = []
+        # offsetList = []
+        kCurr = sumoEnv.trafficLightDict['nt1'].kCurr
+        for tls in sumoEnv.trafficLightDict.values():
+            tlsPadT.append(tls.tlsPlanAll[(kCurr - PAD_CYCLE_NUM):tls.kCurr] + [tls.tlsPlanCurr])
+            jCurrList.append(tls.jInd)
+            # offsetList.append(OFFSET[getIndfromId('tls', tls.id)] + np.sum(tls.tlsPlanAll[:(kCurr - PAD_CYCLE_NUM)]))
+        for p in tlsPadT:
+            tlsPadt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
+
+        inputDict['tls_pad_T'] = tlsPadT.copy()
+        inputDict['tls_pad_t'] = tlsPadt
+        inputDict['j_curr'] = jCurrList.copy()
+        # inputDict['OF'] = offsetList.copy()
+        # if len(sumoEnv.tlsPlan) > 0:
+        #     inputDict['T_opt_plan'] = sumoEnv.tlsPlan[(PLANNED_CYCLE_NUM - PAD_CYCLE_NUM):, :, :, :]
+        #     inputDict['t_opt_plan'] = np.insert(np.delete(sumoEnv.tlsPlan, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
+        # else:
+        #     inputDict['T_opt_plan'] = []
         return inputDict
 
     def plan(self, timeStep):
@@ -222,12 +264,15 @@ class sumoEnv:
         if not sumoEnv.runningBusDict:
             return
         sumoEnv.runningBusListSorted = sorted(sumoEnv.runningBusDict.values(), key=lambda x: x.pos[0], reverse=True)      
+        if timeStep == 40:
+            pass
         # 调用MRTSP-SA算法，输出以t=timeStep为0时刻的未来K周期信号配时与全程公交行驶(arrTime, pos)列表
         sumoEnv.tlsPlan, sumoEnv.busArrTimePlan = optimize(**self.genInput(timeStep))
         sumoEnv.busArrTimePlan = [[plan[0] + timeStep, plan[1]] for plan in sumoEnv.busArrTimePlan] # 对齐优化模型与仿真环境0时刻
         # 更新信号配时计划，包括将目前配时替换为新规划配时的时刻，以及对应的配时方案
         for tls in sumoEnv.trafficLightDict.values():
-            tls.updatePlan(timeStep)
+            # tls.updatePlan(timeStep)
+            tls.control(timeStep)
         # 更新公交到达时刻计划，包括按顺序经过未来每个节点（交叉口or站点）的计划时刻与对应位置
         for i, bus in enumerate(sumoEnv.runningBusListSorted):
             bus.updatePlan(i)
@@ -246,9 +291,9 @@ class sumoEnv:
             if bus.nextUpdatePos is not None and bus.pos[0] >= bus.nextUpdatePos:
                 bus.upperControl()
         # 检查是否需要切换信号配时方案
-        for tls in sumoEnv.trafficLightDict.values():
-            if tls.nextUpdate is not None and timeStep >= tls.nextUpdate:
-                tls.control(timeStep)
+        # for tls in sumoEnv.trafficLightDict.values():
+        #     if tls.nextUpdate is not None and timeStep >= tls.nextUpdate:
+        #         tls.control(timeStep)
     def lowerControl(self, timeStep):
         for bus in sumoEnv.runningBusDict.values():
             bus.lowerControl(timeStep)

@@ -11,6 +11,7 @@ from bisect import bisect_left
 
 # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
+RGY2J = {2: 4, 3: 7, 5: 6, 6: 6, 7: 1, 9: 8, 10: 3, 12: 2, 13: 2, 14: 5}
 
 # T：K*(2*4), K：周期，I：交叉口编号, 2：双环, 4：四相位
 # def getSumoTLSProgram(J, T, YR):
@@ -41,6 +42,22 @@ phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8
 #             RGYplan[k].append((RGY, phaseDur))
 #     return RGYplan
 
+def getIniTlsCurr(T, t):
+    # 初始化结果数组
+    result = np.zeros_like(T)
+    # 逐行计算使得前几个元素的和等于目标值
+    for i in range(T.shape[0]):
+        current_sum = 0
+        for j in range(T.shape[1]):
+            if current_sum + T[i, j] <= t:
+                result[i, j] = T[i, j]
+                current_sum += T[i, j]
+            else:
+                result[i, j] = t - current_sum
+                current_sum = t
+                break  # 达到目标和，停止本行计算
+    return result
+
 # T：K*(2*4), K：周期，I：交叉口编号, 2：双环, 4：四相位
 def getSumoTLSProgram(J, T, YR):
     K = T.shape[0]
@@ -48,6 +65,13 @@ def getSumoTLSProgram(J, T, YR):
     Tplan = np.zeros(T.shape[:-1] + (T.shape[-1]*2, ))
     Tplan[..., ::2] = T - YR_
     Tplan[..., 1::2] = YR_
+    for i in range(T.shape[1]):
+        for j in range(T.shape[2]):
+            if T[0, i, j] < YR:
+                Tplan[0, i, 2*j] = 0
+                Tplan[0, i, 2*j + 1] = T[0, i, j]
+                if T[0, i, j] > 0:
+                    YRfirst = 1
     tPlan = np.insert(np.delete(Tplan, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
     # print(tPlan)
     RGYplan = [[] for _ in range(K)]
@@ -59,18 +83,11 @@ def getSumoTLSProgram(J, T, YR):
         tk = tPlan[k]
         tSplit = np.sort(np.unique(tk.flatten(), axis=-1))
         Tsplit = np.diff(tSplit)
-        # print(tSplit)
         for j, t in enumerate(tSplit):
             phaseDur = Tsplit[j] if j < len(Tsplit) else YR
-            # RGY = 'GrrGrrGrrGrr'
             RGY = 'GrrGrrrGrrGrrr'
             for b in [0, 1]:
                 tInd = np.searchsorted(tk[b], t, side='right')
-                # currentPhase = phaseDict[J[b][int((tInd - 1)/2)]] - 1
-                # if tInd % 2 == 0:
-                #     RGY = RGY[:currentPhase] + 'y' + RGY[currentPhase+1:]
-                # else:
-                #     RGY = RGY[:currentPhase] + 'G' + RGY[currentPhase+1:]
                 currentPhaseList = phaseDict[J[b][int((tInd - 1)/2)]]
                 for currentPhase in currentPhaseList:
                     if tInd % 2 == 0:
@@ -112,9 +129,9 @@ def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):
         f.write(f"timeStep: {timeStep}\n\n")
 
         # 保存tlsPlan
-        f.write("tlsPlan:\n")
-        np.savetxt(f, tlsPlan.reshape(-1, tlsPlan.shape[-1]), fmt='%.4f', delimiter=", ")
-        f.write("\n\n")
+        # f.write("tlsPlan:\n")
+        # np.savetxt(f, tlsPlan.reshape(-1, tlsPlan.shape[-1]), fmt='%.4f', delimiter=", ")
+        # f.write("\n\n")
 
         # 保存busArrTimePlan
         f.write("busArrTimePlan:\n")
