@@ -2,6 +2,7 @@ import gurobipy as gb
 import numpy as np
 from plotTSTP import plotTSTP
 import datetime
+from tools import round_and_adjust
 
 rootPath = r'E:\workspace\python\BusRouteTSP'
 def optimize(**kwargs):
@@ -27,10 +28,6 @@ def optimize(**kwargs):
         t_ini.append(np.flip(np.flip(np.sum(np.array(tls_pad_T[i])[:, 0, :], axis=-1)).cumsum()))
         OF[i] = 0
     t_lb = -t_ini[0][0]
-
-    # if len(T_opt_plan) > 0:
-    #     t_ini = np.flip(T_opt_plan[:, :, 0, :].sum(axis=-1), axis=0).cumsum(axis=0)
-    #     t_lb = min([t_lb, -t_ini[-1][0]])
 
     # 创建一个新的模型 调用内置函数Model()创建模型
     model = gb.Model()
@@ -64,11 +61,14 @@ def optimize(**kwargs):
             # T_app[n, i].start = L_app[i]/12
             # T_dep[n, i].start = L_dep[i]/12
         t_arr[n, I] = model.addVar(name=f't_arr{n}{I}')
+        t_dev[n, I] = model.addVar(name=f't_dev{n}{I}')
     for i in range(I):
         for k in range(K + K_ini):
             for j in np.concatenate((J[i][0], J[i][1])):
-                t[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f't{i}{j}{k}', lb=t_lb)
-                g[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f'g{i}{j}{k}')
+                # t[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f't{i}{j}{k}', lb=t_lb)
+                # g[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f'g{i}{j}{k}')
+                t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
+                g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}')
                 # 初始解
                 t[i, j, k].start = t_opt[i][np.where(J[i] == j)][0] + k*C
@@ -86,8 +86,10 @@ def optimize(**kwargs):
         for j in range(1, 9):
             for k in range(K + K_ini):
                 objective_expr += w_c * y[i, j, k]
-        for n in range(N):
+    for n in range(N):
+        for i in range(I):
             objective_expr += w_b * (t_dev[n, i] + 0.0001*d[n, i])
+        objective_expr += w_b * t_dev[n, I]
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 设置约束
@@ -101,12 +103,6 @@ def optimize(**kwargs):
                         # 已经结束的周期/相位，采用原有的信号配时
                         model.addConstr(t[i, j, k] == -t_ini[i][k] + tls_pad_t[i][k][l][j_ind])
                         model.addConstr(g[i, j, k] == tls_pad_T[i][k][l][j_ind] - YR)
-                        # if len(T_opt_plan) > 0:
-                        #     model.addConstr(t[i, j, k] == -t_ini[K_ini-k-1][0] + t_opt_plan[k][i][l][j_ind])
-                        #     model.addConstr(g[i, j, k] == T_opt_plan[k][i][l][j_ind] - YR)
-                        # else:
-                        #     model.addConstr(t[i, j, k] == -(K_ini - k)*C + t_opt[i][l][j_ind])
-                        #     model.addConstr(g[i, j, k] == T_opt[i][l][j_ind] - YR)
                     else:
                         if (k == len(tls_pad_T[i]) - 1 and j_ind == j_curr[i][l]):
                             model.addConstr(t[i, j, k] == -t_ini[i][k] + tls_pad_t[i][k][l][j_ind])
@@ -140,7 +136,10 @@ def optimize(**kwargs):
         nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
         # case 1：还没发车
         if p_bus_0[n] == INI or nextStopInd == 0:
-            model.addConstr(t_arr[n, 0] == T_dep_0[n])
+            if p_bus_0[n] == INI or (POS_stop[nextStopInd] - p_bus_0[n])/v_max < t_arr_plan[n][0]:
+                model.addConstr(t_arr[n, 0] == t_arr_plan[n][0])
+            else:
+                model.addConstr(t_arr[n, 0] == (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
         # case 2：处于交叉口-下一站点之间
         elif nextIntInd == nextStopInd:
             model.addConstr(t_arr[n, nextStopInd] == T_dep[n, nextStopInd-1])
@@ -179,12 +178,16 @@ def optimize(**kwargs):
                 model.addConstr(T_app[n, i] >= L_app[i]/v_max)
             model.addConstr(T_dep[n, i] >= L_dep[i]/v_max)
             # 目标函数辅助约束(晚点时刻)
-            # model.addConstr(t_dev[n, i] >= t_arr[n, i + 1] - t_arr_plan[n][i])
+            # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n][i])
             # model.addConstr(t_dev[n, i] >= 0)
             # 目标函数辅助约束(偏差时刻)
-            model.addConstr(t_dev[n, i] >= t_arr[n, i + 1] - t_arr_plan[n][i])
-            model.addConstr(t_dev[n, i] >= -(t_arr[n, i + 1] - t_arr_plan[n][i]))
-            
+            model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n][i])
+            model.addConstr(t_dev[n, i] >= -(t_arr[n, i] - t_arr_plan[n][i]))
+        model.addConstr(t_dev[n, I] >= t_arr[n, I] - t_arr_plan[n][I])
+        model.addConstr(t_dev[n, I] >= -(t_arr[n, I] - t_arr_plan[n][I]))
+
+    # model.addConstr(t_arr[0, 2] == t_arr_plan[0, 2])
+
     # 执行优化函数
     model.optimize()
 
@@ -196,7 +199,8 @@ def optimize(**kwargs):
         for i in range(I):
             T_sol_i = []
             for k in range((len(tls_pad_T[i]) - 1), (K + K_ini)):
-                T_sol_i.append(np.array([g[i, j, k].x + YR for j in np.concatenate((J[i][0], J[i][1]))]).reshape(J[i].shape))
+                Tk = round_and_adjust(np.array([g[i, j, k].x + YR for j in np.concatenate((J[i][0], J[i][1]))]).reshape(J[i].shape))
+                T_sol_i.append(Tk)
             for l in [0, 1]:
                 T_sol_i[0][l][0:(j_curr[i][l] + 1)] -= tls_pad_T[i][-1][l][0:(j_curr[i][l] + 1)]
             T_sol.append(T_sol_i)
@@ -210,7 +214,7 @@ def optimize(**kwargs):
                 traj_x += [p_bus_0[n]]
             else:
                 if p_bus_0[n] == INI:
-                    traj_t += [T_dep_0[n]-(POS_stop[0]/v_avg), T_dep_0[n]]
+                    traj_t += [t_arr_plan[n, 0]-(POS_stop[0]/v_avg), t_arr_plan[n, 0]]
                     traj_x += [0, POS_stop[0]]
                 else:
                     traj_t += [0, t_arr[n, 0].x]
