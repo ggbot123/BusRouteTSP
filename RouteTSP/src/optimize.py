@@ -26,13 +26,20 @@ def optimize(**kwargs):
     for i in range(I):
         # 0-kCurr周期起始时刻距离规划时刻的时长
         t_ini.append(np.flip(np.flip(np.sum(np.array(tls_pad_T[i])[:, 0, :], axis=-1)).cumsum()))
-        OF[i] = 0
     t_lb = -t_ini[0][0]
+
+    # 需要最大N时，取消注释
+    # N = t_arr_plan.shape[0]
+    i_max = np.zeros(N, dtype=int)
+    for n in range(N):
+        # i_max[n] = np.where(t_arr_plan[n, :] <= (K-1)*C)[0][-1]
+        i_max[n] = I
 
     # 创建一个新的模型 调用内置函数Model()创建模型
     model = gb.Model()
     model.setParam('OutputFlag', 0)
     # model.setParam('LogFile', '.\\log\\gurobi_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M'))  # 将日志输出到gurobi.log文件
+    
     # 创建变量
     t = {}
     g = {}
@@ -46,9 +53,8 @@ def optimize(**kwargs):
     d = {}
     d_ = {}
     r = {}
-    
     for n in range(N):
-        for i in range(I):
+        for i in range(i_max[n]):
             T_app[n, i] = model.addVar(name=f'T_app{n}{i}')
             T_dep[n, i] = model.addVar(name=f'T_dep{n}{i}')
             beta[n, i] = model.addVar(vtype=gb.GRB.BINARY, name=f'beta{n}{i}')
@@ -57,11 +63,11 @@ def optimize(**kwargs):
             r[n, i] = model.addVar(name=f'r{n}{i}')
             d[n, i] = model.addVar(name=f'd{n}{i}')
             d_[n, i] = model.addVar(name=f'd_{n}{i}', lb=-float('inf'))   # 辅助变量d_
-            # 初始解
-            # T_app[n, i].start = L_app[i]/12
-            # T_dep[n, i].start = L_dep[i]/12
-        t_arr[n, I] = model.addVar(name=f't_arr{n}{I}')
-        t_dev[n, I] = model.addVar(name=f't_dev{n}{I}')
+            for j in J_bus:
+                for k in range(K + K_ini):
+                    theta[i, j, k, n] = model.addVar(vtype=gb.GRB.BINARY, name=f'theta{i}{j}{k}{n}')
+        t_arr[n, i_max[n]] = model.addVar(name=f't_arr{n}{i_max[n]}')
+        t_dev[n, i_max[n]] = model.addVar(name=f't_dev{n}{i_max[n]}')
     for i in range(I):
         for k in range(K + K_ini):
             for j in np.concatenate((J[i][0], J[i][1])):
@@ -73,10 +79,7 @@ def optimize(**kwargs):
                 # 初始解
                 t[i, j, k].start = t_opt[i][np.where(J[i] == j)][0] + k*C
                 g[i, j, k].start = T_opt[i][np.where(J[i] == j)][0] - YR
-                y[i, j, k].start = 0
-            for j in J_bus:
-                for n in range(N):
-                    theta[i, j, k, n] = model.addVar(vtype=gb.GRB.BINARY, name=f'theta{i}{j}{k}{n}')
+                y[i, j, k].start = 0 
 
     # 设置目标函数
     w_c = 0.5
@@ -87,9 +90,9 @@ def optimize(**kwargs):
             for k in range(K + K_ini):
                 objective_expr += w_c * y[i, j, k]
     for n in range(N):
-        for i in range(I):
+        for i in range(i_max[n]):
             objective_expr += w_b * (t_dev[n, i] + 0.0001*d[n, i])
-        objective_expr += w_b * t_dev[n, I]
+        objective_expr += w_b * t_dev[n, i_max[n]]
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 设置约束
@@ -125,7 +128,7 @@ def optimize(**kwargs):
                         # model.addConstr(y[i, j, k] >= g[i, j, k] + YR - T_opt[i][np.where(J[i] == j)][0])
                         # 最小绿时约束
                         model.addConstr(g[i, j, k] >= G_min)
-                        # model.addConstr(g[i, j, k] >= V_ij[i][j-1]*C/(S_ij[i][j-1]*Xc))
+                        model.addConstr(g[i, j, k] >= V_ij[i, (j-1)]*C/(S_ij[i, (j-1)]*Xc))
 
                     
 
@@ -136,8 +139,8 @@ def optimize(**kwargs):
         nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
         # case 1：还没发车
         if p_bus_0[n] == INI or nextStopInd == 0:
-            if p_bus_0[n] == INI or (POS_stop[nextStopInd] - p_bus_0[n])/v_max < t_arr_plan[n][0]:
-                model.addConstr(t_arr[n, 0] == t_arr_plan[n][0])
+            if p_bus_0[n] == INI or (POS_stop[nextStopInd] - p_bus_0[n])/v_max < t_arr_plan[n, 0]:
+                model.addConstr(t_arr[n, 0] == t_arr_plan[n, 0])
             else:
                 model.addConstr(t_arr[n, 0] == (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
         # case 2：处于交叉口-下一站点之间
@@ -149,7 +152,7 @@ def optimize(**kwargs):
             model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd])
             model.addConstr(T_app[n, nextIntInd] >= (POS[nextIntInd] - p_bus_0[n])/v_max)
 
-        for i in range(nextIntInd, I):
+        for i in range(nextIntInd, i_max[n]):
             # 公交行驶时间模型约束
             model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i])
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K + K_ini)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
@@ -157,11 +160,11 @@ def optimize(**kwargs):
                 for k in range(K + K_ini):
                     # 采用theta表征公交到达交叉口时刻对应的信号周期
                     if k > 0:
-                        model.addConstr(r[n, i] >= OF[i] + t[i, j, k - 1] + g[i, j, k - 1] - (1 - theta[i, j, k, n])*M)
-                    model.addConstr(r[n, i] <= OF[i] + t[i, j, k] + g[i, j, k] + (1 - theta[i, j, k, n])*M)
+                        model.addConstr(r[n, i] >= t[i, j, k - 1] + g[i, j, k - 1] - (1 - theta[i, j, k, n])*M)
+                    model.addConstr(r[n, i] <= t[i, j, k] + g[i, j, k] + (1 - theta[i, j, k, n])*M)
                     # 交叉口公交车辆延误
-                    model.addConstr(d_[n, i] >= OF[i] + t[i, j, k] + Q_ij - r[n, i] - (1 - theta[i, j, k, n])*M)
-                    model.addConstr(d_[n, i] <= OF[i] + t[i, j, k] + Q_ij - r[n, i] + (1 - theta[i, j, k, n])*M)
+                    model.addConstr(d_[n, i] >= t[i, j, k] + Q_ij - r[n, i] - (1 - theta[i, j, k, n])*M)
+                    model.addConstr(d_[n, i] <= t[i, j, k] + Q_ij - r[n, i] + (1 - theta[i, j, k, n])*M)
             # 辅助约束，保证延误非负
             # model.addConstr(d_[n, i] <= (1 - beta[n, i])*M)
             # model.addConstr(d_[n, i] >= -beta[n, i]*M)
@@ -178,13 +181,13 @@ def optimize(**kwargs):
                 model.addConstr(T_app[n, i] >= L_app[i]/v_max)
             model.addConstr(T_dep[n, i] >= L_dep[i]/v_max)
             # 目标函数辅助约束(晚点时刻)
-            # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n][i])
+            # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n, i])
             # model.addConstr(t_dev[n, i] >= 0)
             # 目标函数辅助约束(偏差时刻)
-            model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n][i])
-            model.addConstr(t_dev[n, i] >= -(t_arr[n, i] - t_arr_plan[n][i]))
-        model.addConstr(t_dev[n, I] >= t_arr[n, I] - t_arr_plan[n][I])
-        model.addConstr(t_dev[n, I] >= -(t_arr[n, I] - t_arr_plan[n][I]))
+            model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n, i])
+            model.addConstr(t_dev[n, i] >= -(t_arr[n, i] - t_arr_plan[n, i]))
+        model.addConstr(t_dev[n, i_max[n]] >= t_arr[n, i_max[n]] - t_arr_plan[n, i_max[n]])
+        model.addConstr(t_dev[n, i_max[n]] >= -(t_arr[n, i_max[n]] - t_arr_plan[n, i_max[n]]))
 
     # model.addConstr(t_arr[0, 2] == t_arr_plan[0, 2])
 
@@ -220,7 +223,7 @@ def optimize(**kwargs):
                     traj_t += [0, t_arr[n, 0].x]
                     traj_x += [p_bus_0[n], POS_stop[0]]
             # 填写traj
-            for i in range(nextIntInd, I):
+            for i in range(nextIntInd, i_max[n]):
                 if d_[n, i].x <= 0:
                     traj_t += [t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x]
                     traj_x += [POS[i], POS_stop[i+1]]

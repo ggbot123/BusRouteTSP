@@ -2,7 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 from maxband import MaxBAND_versatile
-from tools import vc_ratio, all_vc_ratio, getSumoTLSProgram, round_and_adjust, demand_to_route
+from tools import vc_ratio, all_vc_ratio, getSumoTLSProgram, round_and_adjust, demand_to_route, volume
 from ScenarioGenerator.nodeGen import posJunc
 import numpy as np
 import json
@@ -122,9 +122,18 @@ demand_to_route(traffic_demand)
 
 # plot_signal_timing(num_signals, cycle_length, offset_WT, green_ratio, inbound_dev, progression_speed[0, :], queue_clearance_time[0, :], distance=np.cumsum(np.insert(distance[0, :], 0, 0)))
 
+# 计算流量矩阵
+V = np.zeros([num_signals, 8])
+for i in range(num_signals):
+    V[i] = np.array([volume(traffic_demand, 'I' + str(i+1), 'E', 'left'), volume(traffic_demand, 'I' + str(i+1), 'W', 'through'),
+                     volume(traffic_demand, 'I' + str(i+1), 'S', 'left'), volume(traffic_demand, 'I' + str(i+1), 'N', 'through'),
+                     volume(traffic_demand, 'I' + str(i+1), 'W', 'left'), volume(traffic_demand, 'I' + str(i+1), 'E', 'through'),
+                     volume(traffic_demand, 'I' + str(i+1), 'N', 'left'), volume(traffic_demand, 'I' + str(i+1), 'S', 'through')])
+
 # 将数据保存到文件
 np.save(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy', offset)
 np.save(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy', J)
 np.save(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy', T[0])
+np.save(r'E:\workspace\python\BusRouteTSP\tools\result\volume.npy', V)
 with open(r'E:\workspace\python\BusRouteTSP\tools\result\data.pkl', 'wb') as file:
     pickle.dump(allRGYplan, file)

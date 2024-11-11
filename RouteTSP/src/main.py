@@ -12,7 +12,6 @@ from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
 from tools import getSumoTLSProgram, getIndfromId, myplot, savePlan, getBusOrder, RGY2J, getIniTlsCurr
 from optimize import optimize
-from optimize_test import optimize_test
 
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
@@ -35,6 +34,12 @@ BG_CYCLE_LEN = 100
 BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
 BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
 OFFSET = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
+VOLUME = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\volume.npy')
+S = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+              [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+              [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+              [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
+              [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800]])
 YR = 4  # 损失时间
 BG_PHASE_SPLIT = np.insert(np.delete(BG_PHASE_LEN, -1, axis=2), 0, 0, axis=2).cumsum(axis=2)
 FIRST_PHASE = BG_PHASE_SEQ[:, :, 0]
@@ -43,7 +48,7 @@ BAR_PHASE = BG_PHASE_SEQ[:, :, [0, 2]]
 COORD_PHASE = [2, 6]
 BUS_PHASE = [2]
 G_MIN = 8  # 最小绿灯时间
-COEFF_XC = 0.9  # 临界饱和系数
+COEFF_XC = 1  # 临界饱和系数
 INI = -10000
 POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
@@ -195,23 +200,26 @@ class sumoEnv:
 
     def genInput(self, timeStep):
         # 构造优化模型输入
-        inputDict = {'I': len(self.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
-                     'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
-                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'OF': OFFSET, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC,
-                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
-                    }
-        inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
-        inputDict['S_ij'] = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
-                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
-                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
-                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
-                                      [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800]])
-        inputDict['p_bus_0'] = np.array([bus.pos[0] for bus in sumoEnv.runningBusListSorted] + [-10000]*(PLANNED_BUS_NUM - len(sumoEnv.runningBusDict)))
         # TODO: 适应更一般的情况，例如当0车抛锚时，minRunningInd = 0，而maxRunningInd可能大于目前路上行驶的公交总数
         minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
         maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
+        maxPlanInd = np.where(TIMETABLE[:, 0] > timeStep + (PLANNED_CYCLE_NUM - 1)*BG_CYCLE_LEN)[0][0]
+        
+        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
+                     'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
+                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC,
+                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
+                    }
+        # inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
+        # inputDict['V_ij'] = VOLUME[np.arange(S.shape[0])[:,None], (BG_PHASE_SEQ.reshape(len(sumoEnv.trafficLightDict), -1) - 1)]
+        inputDict['V_ij'] = VOLUME
+        inputDict['S_ij'] = S
+        # inputDict['p_bus_0'] = np.array([bus.pos[0] for bus in sumoEnv.runningBusListSorted] + [-10000]*(PLANNED_BUS_NUM - len(sumoEnv.runningBusDict)))
+        inputDict['p_bus_0'] = np.array([bus.pos[0] for bus in sumoEnv.runningBusListSorted] + [-10000]*(maxPlanInd - maxRunningInd - 1))
+        
         # 注：隐含意思是不区分完成时刻表的具体车辆，即发生超车时前后车时刻表也要交换
-        inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:minRunningInd + PLANNED_BUS_NUM, :] - timeStep
+        # inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:minRunningInd + PLANNED_BUS_NUM, :] - timeStep
+        inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:maxPlanInd, :] - timeStep
         inputDict['Q_ij'] = 0
 
         tlsPadT = []
