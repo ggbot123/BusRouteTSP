@@ -244,6 +244,86 @@ def myplot(POS, POS_stop, phase, timetable):
     plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
     plt.show()
 
+def local_SP_plot(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, DIRNAME, cnt, sample=None):
+    POS_JUNC = np.array(posJunc).cumsum()
+    POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
+    YR = 4
+    N = len(busArrPlan)
+    # I = len(tlsPlan)
+    I = 1
+    num_sample = 10
+    busLoop = busPhasePos[0]
+    busPhase = busPhasePos[1]
+    TPlan = tlsPlan[:, busLoop, :].flatten()
+    tPlan = np.insert(TPlan, 0, 0).cumsum()
+    sample_cnt = 0
+
+    # 绘制信号配时
+    fig, ax1 = plt.subplots(figsize=(10, 8))
+    lines = []
+    colors = []
+    for i in range(I):
+        for j, phaseLen in enumerate(TPlan):
+            if j % 4 != busPhase:
+                lines.append([(tPlan[j], POS_JUNC[i]), (tPlan[j] + phaseLen, POS_JUNC[i])])
+                colors.append('red')
+            else:
+                lines.append([(tPlan[j], POS_JUNC[i]), (tPlan[j] + phaseLen - YR, POS_JUNC[i])])
+                colors.append('green')
+                lines.append([(tPlan[j] + phaseLen - YR, POS_JUNC[i]), (tPlan[j] + phaseLen, POS_JUNC[i])])
+                colors.append('yellow')
+    # 使用 LineCollection 绘制信号灯状态
+    lc = LineCollection(lines, colors=colors, linewidths=2)
+    ax1.add_collection(lc)
+    ax1.set_xlabel('time(s)')
+    ax1.set_ylabel('distance(m)')
+    ax1.set_title('Traffic Signal Timing Plan')
+
+    for n in range(N):
+        for _ in range(num_sample):
+            pos = busArrPlan[n][1, 0]
+            t = busArrPlan[n][0, 0]
+            traj_t, traj_x = [t], [pos]
+            for t_arr in busArrPlan[n][:, 1:].T:
+                t_arr_plan = t_arr[0]
+                nextPOS = t_arr[1]
+                # 驶向路口/站点
+                if (nextPOS - pos)/(t_arr_plan - t) <= V_MAX and (nextPOS - pos)/(t_arr_plan - t) >= 0:
+                    t_arr_act = t_arr_plan
+                else:
+                    t_arr_act = t + (nextPOS - pos)/V_MAX
+                traj_t.append(t_arr_act)
+                traj_x.append(nextPOS)
+
+                if nextPOS in POS_STOP:
+                    # 停站
+                    if sample is None:
+                        Ts = np.random.normal(0, 1)*PER_BOARD_DUR
+                    else:
+                        Ts = sample[sample_cnt]
+                        sample_cnt += 1
+                    t_arr_act += Ts
+                    traj_t.append(t_arr_act)
+                    traj_x.append(nextPOS)
+                else:
+                    # 路口等待
+                    ind = np.searchsorted(tPlan[1:] - YR, t_arr_act)
+                    arrPhase = ind % 4
+                    arrCycle = int(ind / 4)
+                    if arrPhase < busPhase:
+                        t_arr_act = tPlan[4*arrCycle + busPhase]
+                    elif arrPhase > busPhase:
+                        t_arr_act = tPlan[4*(arrCycle + 1) + busPhase]
+                    traj_t.append(t_arr_act)
+                    traj_x.append(nextPOS)
+
+                t = t_arr_act
+                pos = nextPOS
+            ax1.plot(traj_t, traj_x, color='b')
+    
+    plt.savefig(f'{rootPath}\\RouteTSP\\result\\SP_compare\\{DIRNAME}\\{cnt}.png')
+    # plt.show()
+
 if __name__ == '__main__':
     # J = np.array([[1, 2, 3, 4], [6, 5, 7, 8]])
     # T_opt = np.array([[[19, 40, 16, 25], [44, 15, 19, 22]],

@@ -75,24 +75,24 @@ def optimize(**kwargs):
                 # g[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f'g{i}{j}{k}')
                 t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
-                y[i, j, k] = model.addVar(name=f'y{i}{j}{k}')
+                y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-gb.GRB.INFINITY)
                 # 初始解
                 t[i, j, k].start = t_opt[i][np.where(J[i] == j)][0] + k*C
                 g[i, j, k].start = T_opt[i][np.where(J[i] == j)][0] - YR
                 y[i, j, k].start = 0 
 
     # 设置目标函数
-    w_c = 0.5
-    w_b = 0.5
+    w_c = 0.1
+    w_b = 0.9
     objective_expr = gb.LinExpr()
     for i in range(I):
         for j in range(1, 9):
             for k in range(K + K_ini):
-                objective_expr += w_c * y[i, j, k]
+                objective_expr += w_c * y[i, j, k]**2
     for n in range(N):
         for i in range(i_max[n]):
-            objective_expr += w_b * (t_dev[n, i] + 0.0001*d[n, i])
-        objective_expr += w_b * t_dev[n, i_max[n]]
+            objective_expr += w_b * (t_dev[n, i]**2 + 0.0001*d[n, i]**2)
+        objective_expr += w_b * t_dev[n, i_max[n]]**2
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 设置约束
@@ -123,8 +123,9 @@ def optimize(**kwargs):
                             j_oth = J_barrier[i][1][np.where(J_barrier[i][0] == j)][0]
                             model.addConstr(t[i, j, k] == t[i, j_oth, k])                   
                         # 目标函数辅助约束
-                        model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
-                        model.addConstr(y[i, j, k] >= 0)
+                        model.addConstr(y[i, j, k] == T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
+                        # model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
+                        # model.addConstr(y[i, j, k] >= 0)
                         # model.addConstr(y[i, j, k] >= g[i, j, k] + YR - T_opt[i][np.where(J[i] == j)][0])
                         # 最小绿时约束
                         model.addConstr(g[i, j, k] >= G_min)
