@@ -200,6 +200,7 @@ def optimize(**kwargs):
     if model.status == gb.GRB.OPTIMAL:
         T_sol = []
         Traj_sol = [[[], []] for _ in range(N)]
+        theta_ = np.zeros([I, K + K_ini, N])
         for i in range(I):
             T_sol_i = []
             for k in range((len(tls_pad_T[i]) - 1), (K + K_ini)):
@@ -231,6 +232,8 @@ def optimize(**kwargs):
                 else:
                     traj_t += [t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x-T_dep[n, i].x, t_arr[n, i+1].x]
                     traj_x += [POS[i], POS[i], POS_stop[i+1]]
+                for k in range(K + K_ini):
+                    theta_[i, k, n] = theta[i, J_bus[0], k, n].x
             Traj_sol[n][0] = np.append(Traj_sol[n][0], traj_t)
             Traj_sol[n][1] = np.append(Traj_sol[n][1], traj_x)
         # plotTSTP(FILENAME, J, T_sol, t_arr_plan, Traj_sol, 2, plotShow=False)
@@ -245,4 +248,5 @@ def optimize(**kwargs):
                 print(f"Infeasible constraint: {constr.ConstrName}")
         print('未找到最优解。')
 
-    return T_sol, Traj_sol
+    return T_sol, Traj_sol, theta_
+    # return T_sol, Traj_sol
