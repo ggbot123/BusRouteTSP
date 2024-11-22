@@ -155,7 +155,7 @@ def optimize(**kwargs):
 
         for i in range(nextIntInd, i_max[n]):
             # 公交行驶时间模型约束
-            model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i])
+            model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K + K_ini)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
             for j in J_bus:
                 for k in range(K + K_ini):

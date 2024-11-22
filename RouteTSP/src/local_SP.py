@@ -31,10 +31,10 @@ def local_SP(id, t_arr, t_arr_next, theta, **kwargs):
     alpha = 0.1  # 风险水平（1 - alpha 为机会约束概率）
     np.random.seed(0)
     # Ts_means = np.array([2, 2, 2, 2, 2, 2])
-    Ts_means = np.array([0, 0, 0, 0, 0, 0])
-    Ts_devs = np.array([1, 1, 1, 1, 1, 1])
+    Ts_means = T_board
+    Ts_devs = np.array([1, 1, 1, 1, 1, 1])*3
     Z = np.random.normal(0, 1, (num_samples, N))
-    Ts = (Ts_means + Z * Ts_devs)*t_board    # Ts: 1000 * N
+    Ts = (Ts_means + Z * Ts_devs)   # Ts: 1000 * N
 
     # 创建Gurobi模型
     model = gb.Model("Local_SP")
