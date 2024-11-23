@@ -63,6 +63,7 @@ def generate_add():
     person_rides = '      <ride busStop="%s" line="%s"/>\n'
 
     str_adds += (busStopGen.output_busStops(stops) + busFlowGen.output_busFlow(trip, trip_stops) + personFlowGen.output_personFlow(person, person_walks, person_rides) + '</additional>\n') 
+    # str_adds += (busStopGen.output_busStops(stops) + busFlowGen.output_busFlow(trip, trip_stops) + '</additional>\n') 
 
     write_file('./Scenario/exp.add.xml', str_adds)
 

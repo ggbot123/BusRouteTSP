@@ -5,7 +5,7 @@ sys.path.append(rootPath)
 from ScenarioGenerator.busStopGen import posSet
 
 SIM_TIME = 7200
-ARRIVAL_RATE = 10/(4*60)
+ARRIVAL_RATE = 1/(4*60)
 
 def output_personFlow(person, person_walks, person_rides):
     str_adds = '   <vType id="PED" vClass="pedestrian" color="yellow" guiShape="pedestrian"/>\n'

@@ -101,7 +101,8 @@ def getIndfromId(type, id):
         return int(id)
     
 def getBusOrder(busId, arr):
-    order = bisect_left(arr, busId)
+    # order = bisect_left(arr, busId)
+    order = arr.index(busId)
     return order
     
 def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):

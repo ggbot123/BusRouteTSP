@@ -18,7 +18,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 800
 SIM_STEP = 1
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 5
@@ -40,8 +40,8 @@ INI = -10000
 POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
 BUS_DEP_HW = 2*60
-V_AVG = 12
-TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
+V_AVG = 10
+TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
 
 class Vehicle:
     def __init__(self, vehId, timeStep):
@@ -79,7 +79,8 @@ class Bus(Vehicle):
                 logging.info('[%s] %s\n' % (str(timeStep), str(sumoEnv.busStopDict)))
                 # 按人数停站
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
-                traci.vehicle.setBusStop(self.id, stopId, duration=0)
+                # traci.vehicle.setBusStop(self.id, stopId, duration=0)
+                traci.vehicle.setBusStop(self.id, stopId, duration=10)
                 self.atBusStop = stopId
             else:
                 # 注：每辆公交只经过每个站点1次
@@ -157,5 +158,5 @@ if __name__ == '__main__':
 
     env.record()
     print("Ploting...\n")
-    myplot(POS_JUNC, BUS_PHASE[0])
+    myplot(POS_JUNC, POS_STOP, BUS_PHASE[0], TIMETABLE)
     traci.close()
