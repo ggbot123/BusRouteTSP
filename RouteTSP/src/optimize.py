@@ -16,10 +16,6 @@ def optimize(**kwargs):
                 tls_pad_t = kwargs[key]
             elif key == 'j_curr':
                 j_curr = kwargs[key]
-            elif key == 'tls_curr_T':
-                tls_curr_T = kwargs[key]
-            elif key == 'tls_curr_t':
-                tls_curr_t = kwargs[key]
             else:
                 exec(f'{key} = np.{repr(value)}', globals())
     FILENAME = f'{rootPath}\\RouteTSP\\result\\Rolling\\%d.png' % cnt
@@ -30,8 +26,7 @@ def optimize(**kwargs):
     for i in range(I):
         # 0-kCurr周期起始时刻距离规划时刻的时长
         t_ini.append(np.flip(np.flip(np.sum(np.array(tls_pad_T[i])[:, 0, :], axis=-1)).cumsum()))
-    # t_lb = -t_ini[0][0]
-    t_lb = -1000
+    t_lb = -t_ini[0][0]
 
     # 需要最大N时，取消注释
     # N = t_arr_plan.shape[0]
@@ -111,16 +106,10 @@ def optimize(**kwargs):
                         # 已经结束的周期/相位，采用原有的信号配时
                         model.addConstr(t[i, j, k] == -t_ini[i][k] + tls_pad_t[i][k][l][j_ind])
                         model.addConstr(g[i, j, k] == tls_pad_T[i][k][l][j_ind] - YR)
-                    elif k == (len(tls_pad_T[i]) - 1) and j_ind >= j_curr[i][l]:
-                        if j_ind == j_curr[i][l]:
-                            model.addConstr(t[i, j, k] == -t_ini[i][k] + tls_pad_t[i][k][l][j_ind])
-                            model.addConstr(g[i, j, k] == tls_pad_T[i][k][l][j_ind] + tls_curr_T[i][l, j_ind] - YR)
-                        else:
-                            model.addConstr(t[i, j, k] == tls_curr_t[i][l, j_ind])
-                            model.addConstr(g[i, j, k] == tls_curr_T[i][l, j_ind] - YR)
                     else:
-                        if j in J_first[i] and k == len(tls_pad_T[i]):
-                            model.addConstr(t[i, j, k] == t[i, J_last[i][l], k - 1] + g[i, J_last[i][l], k - 1] + YR)
+                        if (k == len(tls_pad_T[i]) - 1 and j_ind == j_curr[i][l]):
+                            model.addConstr(t[i, j, k] == -t_ini[i][k] + tls_pad_t[i][k][l][j_ind])
+                            model.addConstr(g[i, j, k] >= tls_pad_T[i][k][l][j_ind] - YR)
                         if j not in J_last[i]:
                             j_next = J[i][l][j_ind + 1]
                             model.addConstr(t[i, j_next, k] == t[i, j, k] + g[i, j, k] + YR)
@@ -142,7 +131,10 @@ def optimize(**kwargs):
                         model.addConstr(g[i, j, k] >= G_min)
                         model.addConstr(g[i, j, k] >= V_ij[i, (j-1)]*C/(S_ij[i, (j-1)]*Xc))
 
-                    
+    # for n in range(N):
+    #     for i in range(I):                
+    #         model.addConstr(T_app[n, i] == L_app[i]/v_max)
+    #         model.addConstr(T_dep[n, i] == L_dep[i]/v_max)
 
     # 公交运行过程约束
     for n in range(N):
@@ -161,14 +153,12 @@ def optimize(**kwargs):
             model.addConstr(T_dep[n, nextStopInd-1] >= (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
         # case 3: 处于上一站点-交叉口之间
         else:
-            if T_board_past[n] == 0:
-                model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd])
-            else:
-                model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd] + T_board[nextStopInd-1] - T_board_past[n])
+            model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd])
             model.addConstr(T_app[n, nextIntInd] >= (POS[nextIntInd] - p_bus_0[n])/v_max)
 
         for i in range(nextIntInd, i_max[n]):
             # 公交行驶时间模型约束
+            model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K + K_ini)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
             for j in J_bus:
                 for k in range(K + K_ini):
@@ -185,16 +175,15 @@ def optimize(**kwargs):
             # model.addConstr(d[n, i] >= d_[n, i] - beta[n, i]*M)
             model.addConstr(d[n, i] >= d_[n, i])
             model.addConstr(d[n, i] >= 0)
+            # model.addConstr(d[n, i] == (1 - beta[n, i])*d_[n, i])
             model.addConstr(r[n, i] + T_dep[n, i] + d[n, i] == t_arr[n, i + 1])
             # 公交车速约束
             if i == nextIntInd:
                 # case 3 这个约束前面已经加过了，这里不加
                 if p_bus_0[n] == INI or nextStopInd == 0 or nextIntInd == nextStopInd:
                     model.addConstr(T_app[n, i] >= L_app[i]/v_max)
-                    model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             else:
                 model.addConstr(T_app[n, i] >= L_app[i]/v_max)
-                model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             model.addConstr(T_dep[n, i] >= L_dep[i]/v_max)
             # 目标函数辅助约束(晚点时刻)
             # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n, i])
@@ -252,7 +241,6 @@ def optimize(**kwargs):
             Traj_sol[n][0] = np.append(Traj_sol[n][0], traj_t)
             Traj_sol[n][1] = np.append(Traj_sol[n][1], traj_x)
         # plotTSTP(FILENAME, J, T_sol, t_arr_plan, Traj_sol, 2, plotShow=False)
-        # print(T_sol[1])
     else:
         # 计算 IIS
         model.computeIIS()
@@ -264,5 +252,5 @@ def optimize(**kwargs):
                 print(f"Infeasible constraint: {constr.ConstrName}")
         print('未找到最优解。')
 
-    # return T_sol, Traj_sol, theta_
-    return T_sol, Traj_sol
+    return T_sol, Traj_sol, theta_
+    # return T_sol, Traj_sol

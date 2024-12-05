@@ -93,9 +93,18 @@ for i in range(I):
     tlsPlan_.append(tlsPlani_)
     busArrTimePlan_ = [np.append(busArrTimePlan_[n], busArrTimePlani_[n][:, 1:], axis=1) for n in range(len(busArrTimePlan_))]
 
+for i in range(len(tlsPlan_)):
+    np.save(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\tlsPlan_nt{i+1}.npy', np.array(tlsPlan_[i]))
+
 MAXITER = 100
+fail_cnt_origin = 0
+fail_cnt_SP = 0
 for cnt in range(MAXITER):
     Ts = np.random.normal(10, PER_BOARD_DUR, 3000)
-    local_SP_plot([np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], PER_BOARD_DUR, V_MAX, 'original', cnt, Ts)
-    local_SP_plot([np.array(plan) for plan in tlsPlan_], busArrTimePlan_, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], PER_BOARD_DUR, V_MAX, 'local_SP', cnt, Ts)
-    
+    # Ts = 10 * np.ones(3000)
+    fail_cnt_origin += local_SP_plot([np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]],
+                   PER_BOARD_DUR, V_MAX, TIMETABLE, 'original', cnt, Ts)
+    fail_cnt_SP += local_SP_plot([np.array(plan) for plan in tlsPlan_], busArrTimePlan_, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], 
+                  PER_BOARD_DUR, V_MAX, TIMETABLE, 'local_SP', cnt, Ts)
+print(fail_cnt_origin/(MAXITER * 10 * 6))
+print(fail_cnt_SP/(MAXITER * 10 * 6))

@@ -83,6 +83,7 @@ class Bus(Vehicle):
         super().__init__(vehId, timeStep)
         self.atBusStop = None
         self.waitTimeDict = {stopId: 0 for stopId in sumoEnv.busStopDict}
+        self.arrTimeDict = {stopId: INI for stopId in sumoEnv.busStopDict}
         self.avgTimeRefPlan = None
         self.avgTimeRef = None
         self.nextUpdatePos = None
@@ -105,6 +106,7 @@ class Bus(Vehicle):
                 traci.vehicle.setBusStop(self.id, stopId, duration=10)
                 # traci.vehicle.setBusStop(self.id, stopId, duration=0)
                 self.atBusStop = stopId
+                self.arrTimeDict[self.atBusStop] = timeStep
             else:
                 # 注：每辆公交只经过每个站点1次
                 self.waitTime += 1
@@ -306,6 +308,12 @@ class sumoEnv:
         pd.DataFrame(personNumProfileDict).to_csv(csvBusStopFilePath)
         tlsStateProfileDict = {'TrafficLight ' + tlsId: tls.RGYProfile for tlsId, tls in self.trafficLightDict.items()}
         pd.DataFrame(tlsStateProfileDict).to_csv(csvTLSFilePath)
+        busArrTimeMat = [[bus.arrTimeDict[stopId] for stopId in ['AtoB_0', 'AtoB_1', 'AtoB_2', 'AtoB_3', 'AtoB_4', 'AtoB_5']] 
+                         for bus in sumoEnv.allBusDict.values()]
+        np.save(r'E:\workspace\python\BusRouteTSP\RouteTSP\result\busArrTime.npy', np.array(busArrTimeMat))
+        for id, tls in sumoEnv.trafficLightDict.items():
+            tlsPlan = tls.tlsPlanPast
+            np.save(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\tlsPlan_{id}.npy', np.array(tlsPlan))
 
 if __name__ == '__main__':
     traci.start(sumoCmd)

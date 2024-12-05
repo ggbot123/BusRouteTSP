@@ -10,7 +10,7 @@ import datetime
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot
+from tools import getSumoTLSProgram, getIndfromId, myplot, performanceAnalysis
 
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
@@ -18,7 +18,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 800
+SIM_TIME = 3600
 SIM_STEP = 1
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 5
@@ -41,7 +41,9 @@ POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
 BUS_DEP_HW = 2*60
 V_AVG = 10
-TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
+# TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG for i in range(100)])
+STOP_DUR = 10*np.array([1, 1, 1, 1, 1, 1])
+TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
 
 class Vehicle:
     def __init__(self, vehId, timeStep):
@@ -65,6 +67,7 @@ class Bus(Vehicle):
         self.nextUpdatePos = None
         # 关闭所有sumo速度限制
         # traci.vehicle.setSpeedMode(vehId, 0b011000)
+        self.arrTimeDict = {stopId: INI for stopId in sumoEnv.busStopDict}
         logging.info('Bus %s created' % vehId)
     def update(self, timeStep):
         super().update(timeStep)
@@ -78,10 +81,11 @@ class Bus(Vehicle):
                 # 设置停站时间
                 logging.info('[%s] %s\n' % (str(timeStep), str(sumoEnv.busStopDict)))
                 # 按人数停站
-                # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
+                traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 # traci.vehicle.setBusStop(self.id, stopId, duration=0)
-                traci.vehicle.setBusStop(self.id, stopId, duration=10)
+                # traci.vehicle.setBusStop(self.id, stopId, duration=10)
                 self.atBusStop = stopId
+                self.arrTimeDict[self.atBusStop] = timeStep
             else:
                 # 注：每辆公交只经过每个站点1次
                 self.waitTimeDict[self.atBusStop] += SIM_STEP
@@ -146,6 +150,9 @@ class sumoEnv:
         pd.DataFrame(personNumProfileDict).to_csv(csvBusStopFilePath)
         tlsStateProfileDict = {'TrafficLight ' + tlsId: tls.RGYProfile for tlsId, tls in self.trafficLightDict.items()}
         pd.DataFrame(tlsStateProfileDict).to_csv(csvTLSFilePath)
+        busArrTimeMat = [[bus.arrTimeDict[stopId] for stopId in ['AtoB_0', 'AtoB_1', 'AtoB_2', 'AtoB_3', 'AtoB_4', 'AtoB_5']] 
+                         for bus in sumoEnv.allBusDict.values()]
+        np.save(r'E:\workspace\python\BusRouteTSP\RouteTSP\result\busArrTime.npy', np.array(busArrTimeMat))
 
 if __name__ == '__main__':
     traci.start(sumoCmd)
