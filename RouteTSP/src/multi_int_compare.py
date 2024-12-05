@@ -41,7 +41,8 @@ L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
 V_MAX = 15
-STOP_DUR = np.array([10, 10, 10, 10, 10, 10])
+# STOP_DUR = np.array([10, 10, 10, 10, 10, 10])
+STOP_DUR = np.array([20, 20, 20, 20, 20, 20])
 TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
 tlsPadT = [[np.array([[14., 48., 23., 15.], [36., 26., 12., 26.]]), 
             np.array([[14., 48., 23., 15.], [36., 26., 12., 26.]]),
@@ -96,11 +97,14 @@ for i in range(I):
 for i in range(len(tlsPlan_)):
     np.save(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\tlsPlan_nt{i+1}.npy', np.array(tlsPlan_[i]))
 
-MAXITER = 100
+MAXITER = 1
 fail_cnt_origin = 0
 fail_cnt_SP = 0
 for cnt in range(MAXITER):
-    Ts = np.random.normal(10, PER_BOARD_DUR, 3000)
+    Ts = np.random.normal(20, 10, 3000)
+    Ts = np.maximum(Ts, 10*np.ones_like(Ts))
+    Ts = np.minimum(Ts, 30*np.ones_like(Ts))
+    # Ts = np.random.normal(10, 3*PER_BOARD_DUR, 3000)
     # Ts = 10 * np.ones(3000)
     fail_cnt_origin += local_SP_plot([np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]],
                    PER_BOARD_DUR, V_MAX, TIMETABLE, 'original', cnt, Ts)

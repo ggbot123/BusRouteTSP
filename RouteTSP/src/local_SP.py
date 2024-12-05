@@ -32,9 +32,10 @@ def local_SP(id, t_arr, t_arr_next, theta, **kwargs):
     np.random.seed(0)
     # Ts_means = np.array([2, 2, 2, 2, 2, 2])
     Ts_means = T_board
-    Ts_devs = np.array([1, 1, 1, 1, 1, 1])*3
+    Ts_devs = np.array([1, 1, 1, 1, 1, 1])*10
     Z = np.random.normal(0, 1, (num_samples, N))
-    Ts = (Ts_means + Z * Ts_devs)   # Ts: 1000 * N
+    Ts = np.maximum(Ts_means + Z * Ts_devs, 10*np.ones_like(Ts_means))
+    Ts = np.minimum(Ts_means + Z * Ts_devs, 30*np.ones_like(Ts_means))
 
     # 创建Gurobi模型
     model = gb.Model("Local_SP")
@@ -51,19 +52,30 @@ def local_SP(id, t_arr, t_arr_next, theta, **kwargs):
         for j in np.concatenate((J[id][0], J[id][1])):
             t[j, k] = model.addVar(name=f't{j}{k}', lb=t_lb)
             g[j, k] = model.addVar(name=f'g{j}{k}')
-            y[j, k] = model.addVar(name=f'y{j}{k}', lb=-gb.GRB.INFINITY)
+            # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-gb.GRB.INFINITY)
+            y[j, k] = model.addVar(name=f'y{j}{k}', lb=0)
 
+        
     # （辅助）决策变量-实际到达交叉口时刻 r_act(n)
     r_act = model.addVars(num_samples, N, lb=-gb.GRB.INFINITY, name="r_act")
+    t_arr_next_ = model.addVars(num_samples, N,  lb=-gb.GRB.INFINITY, name=f't_arr_next_')
+    t_dev = model.addVars(num_samples, N, name=f't_dev')
+    beta = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta')
 
     # 0-1变量 z(s) 表示每个样本是否满足机会约束
-    z = model.addVars(num_samples, vtype=gb.GRB.BINARY, name="z")
+    # z = model.addVars(num_samples, vtype=gb.GRB.BINARY, name="z")
 
     # 设置目标函数
+    wc = 0.1
+    wb = 0.9
     objective_expr = gb.LinExpr()
     for j in range(1, 9):
         for k in range(K + K_ini):
-            objective_expr += y[j, k]**2
+            objective_expr += wc * y[j, k]
+    for s in range(num_samples):
+        for n in range(N):
+            objective_expr += wb * (t_dev[s, n])/num_samples
+    
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 信号灯结构约束
@@ -93,8 +105,8 @@ def local_SP(id, t_arr, t_arr_next, theta, **kwargs):
                         j_oth = J_barrier[id][1][np.where(J_barrier[id][0] == j)][0]
                         model.addConstr(t[j, k] == t[j_oth, k])                   
                     # 目标函数辅助约束
-                    # model.addConstr(y[j, k] >= T_opt[0][np.where(J[0] == j)][0] - g[j, k] - YR)
-                    model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    # model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # 最小绿时约束
                     model.addConstr(g[j, k] >= G_min)
                     model.addConstr(g[j, k] >= V_ij[id, (j-1)]*C/(S_ij[id, (j-1)]*Xc))
@@ -105,16 +117,25 @@ def local_SP(id, t_arr, t_arr_next, theta, **kwargs):
             # 添加分段线性约束
             model.addGenConstrPWL(r[n], r_act[i, n], [t_arr[n], (t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max) + 1],
                                 [(t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+            # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, n] + L_app[id]/v_max)
+            for j in J_bus:
+                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - YR - M * beta[i, n])
+                model.addConstr(r_act[i, n] <= t[j, k_tar[n] + 1] + M * beta[i, n])
+                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta[i, n]))
+                model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] - YR + M * (1 - beta[i, n]))
+                model.addConstr(t_arr_next_[i, n] == beta[i, n] * r_act[i, n] + (1 - beta[i, n]) * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
+                model.addConstr(t_dev[i, n] >= t_arr_next_[i, n] - t_arr_next[n])
+
     # 期望到达时刻约束
     model.addConstrs((r[n] <= t_arr_next[n] - L_dep[id]/v_max for n in range(N)), name="arrival_plan")
 
     # 机会约束 - 在给定相位通过
-    for j in J_bus:
-        model.addConstrs((r_act[i, n] >= t[j, k_tar[n]] - M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="lower_bound")
-        model.addConstrs((r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] - YR + M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="upper_bound")
+    # for j in J_bus:
+    #     model.addConstrs((r_act[i, n] >= t[j, k_tar[n]] - M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="lower_bound")
+    #     model.addConstrs((r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] - YR + M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="upper_bound")
 
     # 设置满足比例约束
-    model.addConstr(gb.quicksum(z[i] for i in range(num_samples)) >= (1 - alpha) * num_samples)
+    # model.addConstr(gb.quicksum(z[i] for i in range(num_samples)) >= (1 - alpha) * num_samples)
 
     # 求解
     # model.update()
