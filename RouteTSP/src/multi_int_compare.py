@@ -2,12 +2,13 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import numpy as np
-from optimize import optimize
+from optimize_new import optimize
 from local_SP import local_SP
-from tools import local_SP_plot
+from tools import local_SP_plot, getBusIndBeforeJunc
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
 
+timeStep = 23
 I = 5
 MIN_STOP_DUR = 5
 PER_BOARD_DUR = 3
@@ -47,24 +48,34 @@ TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.de
 tlsPadT = [[np.array([[14., 48., 23., 15.], [36., 26., 12., 26.]]), 
             np.array([[14., 48., 23., 15.], [36., 26., 12., 26.]]),
             np.array([[14., 48., 23., 15.], [36., 26., 12., 26.]]),
-            np.array([[0., 0., 0., 0.], [0., 0., 0., 0.]])],
+            np.array([[11., 0., 0., 0.], [11., 0., 0., 0.]])],
             [np.array([[17., 45., 12., 26.], [40., 22., 12., 26.]]), 
             np.array([[17., 45., 12., 26.], [40., 22., 12., 26.]]),
-            np.array([[17., 27., 0., 0.], [40., 4., 0., 0.]])],
+            np.array([[17., 38., 0., 0.], [40., 15., 0., 0.]])],
             [np.array([[17., 37., 12., 34.], [17., 37., 13., 33.]]), 
-            np.array([[17., 37., 12., 27.], [17., 37., 13., 26.]])],
+            np.array([[17., 37., 12., 34.], [17., 37., 13., 33.]]),
+            np.array([[4., 0., 0., 0.], [4., 0., 0., 0.]])],
             [np.array([[40., 23., 12., 25.], [17., 46., 12., 25.]]), 
-            np.array([[40., 8., 0., 0.], [17., 31., 0., 0.]])],
-            [np.array([[36., 27., 12., 0.], [14., 49., 12., 0.]])]
+            np.array([[40., 19., 0., 0.], [17., 42., 0., 0.]])],
+            [np.array([[36., 27., 12., 11.], [14., 49., 12., 11.]])]
         ]
 jCurrList = [np.array([0, 0], dtype=int),
             np.array([1, 1], dtype=int),
-            np.array([3, 3], dtype=int),
+            np.array([0, 0], dtype=int),
             np.array([1, 1], dtype=int),
             np.array([3, 3], dtype=int)]
 tlsPadt = []
 for p in tlsPadT:
     tlsPadt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
+tlsCurrT = [np.array([[ 3., 48., 23., 15.], [25., 26., 12., 26.]]),
+            np.array([[ 0.,  7., 12., 26.], [ 0.,  7., 12., 26.]]),
+            np.array([[13., 37., 12., 34.], [13., 37., 13., 33.]]),
+            np.array([[ 0.,  4., 12., 25.], [ 0.,  4., 12., 25.]]),
+            np.array([[ 0.,  0.,  0., 14.], [ 0.,  0.,  0., 14.]])]
+tlsCurrt = []
+for p in tlsCurrT:
+    tlsCurrt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
+BUS_POS = np.array([270, INI, INI, INI, INI, INI])
 
 def genInput(timeStep):
     # 构造优化模型输入
@@ -75,24 +86,34 @@ def genInput(timeStep):
                 }
     inputDict['V_ij'] = VOLUME
     inputDict['S_ij'] = S
-    inputDict['p_bus_0'] = [-10000]*PLANNED_BUS_NUM
+    inputDict['p_bus_0'] = BUS_POS
     inputDict['t_arr_plan'] = TIMETABLE[0:PLANNED_BUS_NUM, :] - timeStep
     inputDict['Q_ij'] = 0
     inputDict['tls_pad_T'] = tlsPadT.copy()
     inputDict['tls_pad_t'] = tlsPadt.copy()
     inputDict['j_curr'] = jCurrList.copy()
+    inputDict['T_board_past'] = np.array([0, 0, 0, 0, 0, 0])
+    inputDict['tls_curr_T'] = tlsCurrT.copy()
+    inputDict['tls_curr_t'] = tlsCurrt.copy()
     return inputDict
 
-tlsPlan, busArrTimePlan, theta = optimize(**genInput(0)) 
-busArrTimePlan = [np.array(plan) for plan in busArrTimePlan]
+tlsPlan, busArrTimePlan, theta = optimize(**genInput(timeStep)) 
+busArrTimePlan = [np.array([plan[0] + timeStep, plan[1]]) for plan in busArrTimePlan]
 tlsPlan_ = []
-busArrTimePlan_ = [plan[:, 0].reshape([-1, 1]) for plan in busArrTimePlan]
+busArrTimePlan_ = []
 for i in range(I):
-    t_arr = [plan[0, 2*i + 1] for plan in busArrTimePlan]
-    t_arr_next = [plan[0, 2*(i+1) + 1] for plan in busArrTimePlan]
-    tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], **genInput(0))
+    if i == 1:
+        pass
+    busInd = getBusIndBeforeJunc(BUS_POS, i)
+    t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
+    t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
+    tlsPlani_, busArrTimePlani_ = local_SP(i, tlsPlan, t_arr, t_arr_next, theta[i], busInd, **genInput(timeStep))
     tlsPlan_.append(tlsPlani_)
-    busArrTimePlan_ = [np.append(busArrTimePlan_[n], busArrTimePlani_[n][:, 1:], axis=1) for n in range(len(busArrTimePlan_))]
+    if i == 0:
+        busArrTimePlan_ = [np.array(busArrTimePlani_[n - busInd[0]]) for n in busInd]
+    else:
+        busArrTimePlan_ = [np.append(busArrTimePlan_[n], busArrTimePlani_[n - busInd[0]][:, 1:], axis=1) for n in busInd]
+busArrTimePlan_ = [np.array([plan[0] + timeStep, plan[1]]) for plan in busArrTimePlan_]
 
 for i in range(len(tlsPlan_)):
     np.save(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\tlsPlan_nt{i+1}.npy', np.array(tlsPlan_[i]))
@@ -106,9 +127,9 @@ for cnt in range(MAXITER):
     Ts = np.minimum(Ts, 30*np.ones_like(Ts))
     # Ts = np.random.normal(10, 3*PER_BOARD_DUR, 3000)
     # Ts = 10 * np.ones(3000)
-    fail_cnt_origin += local_SP_plot([np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]],
+    fail_cnt_origin += local_SP_plot(timeStep, [np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]],
                    PER_BOARD_DUR, V_MAX, TIMETABLE, 'original', cnt, Ts)
-    fail_cnt_SP += local_SP_plot([np.array(plan) for plan in tlsPlan_], busArrTimePlan_, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], 
+    fail_cnt_SP += local_SP_plot(timeStep, [np.array(plan) for plan in tlsPlan_], busArrTimePlan_, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], 
                   PER_BOARD_DUR, V_MAX, TIMETABLE, 'local_SP', cnt, Ts)
 print(fail_cnt_origin/(MAXITER * 10 * 6))
 print(fail_cnt_SP/(MAXITER * 10 * 6))

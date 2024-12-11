@@ -13,6 +13,8 @@ from bisect import bisect_left
 # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
 RGY2J = {2: 4, 3: 7, 5: 6, 6: 6, 7: 1, 9: 8, 10: 3, 12: 2, 13: 2, 14: 5}
+POS_JUNC = np.array(posJunc).cumsum()
+POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
 
 def round_and_adjust(T):
     t1 = np.round(T[0][0] + T[0][1])
@@ -26,6 +28,8 @@ def round_and_adjust(T):
         T[l][2] -= diff_t2
     return T
         
+def getBusIndBeforeJunc(p_bus, id):
+    return np.where((p_bus < POS_JUNC[id]))[0]
 
 def getIniTlsCurr(T, t):
     # 初始化结果数组
@@ -245,9 +249,7 @@ def myplot(POS, POS_stop, phase, timetable):
     plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
     plt.show()
 
-def local_SP_plot(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, DIRNAME, cnt, sample=None):
-    POS_JUNC = np.array(posJunc).cumsum()
-    POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
+def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, DIRNAME, cnt, sample=None):
     YR = 3
     N = len(busArrPlan)
     I = len(tlsPlan)
@@ -267,7 +269,7 @@ def local_SP_plot(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timeta
         busLoop = busPhasePos[i][0]
         busPhase = busPhasePos[i][1]
         TPlan = tlsPlan[i][:, busLoop, :].flatten()
-        tPlan = np.insert(TPlan, 0, 0).cumsum()
+        tPlan = np.insert(TPlan, 0, timeStep).cumsum()
         for j, phaseLen in enumerate(TPlan):
             if j % 4 != busPhase:
                 lines.append([(tPlan[j], POS_JUNC[i]), (tPlan[j] + phaseLen, POS_JUNC[i])])
