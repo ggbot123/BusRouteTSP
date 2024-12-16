@@ -80,7 +80,7 @@ def optimize(**kwargs):
                 # g[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f'g{i}{j}{k}')
                 t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
-                # y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-gb.GRB.INFINITY)
+                y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-gb.GRB.INFINITY)
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-10, ub=10)
 
                 # 初始解
@@ -89,8 +89,8 @@ def optimize(**kwargs):
                 y[i, j, k].start = 0 
 
     # 设置目标函数
-    w_c = 0.1
-    w_b = 0.9
+    w_c = 0.3
+    w_b = 0.7
     objective_expr = gb.LinExpr()
     for i in range(I):
         for j in range(1, 9):
@@ -174,10 +174,14 @@ def optimize(**kwargs):
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K + K_ini)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
             for j in J_bus:
                 for k in range(K + K_ini):
+                    if nextIntInd < nextStopInd and k == (len(tls_pad_T[i]) - 1):
+                        epsilon = YR
+                    else:
+                        epsilon = 0
                     # 采用theta表征公交到达交叉口时刻对应的信号周期
                     if k > 0:
                         model.addConstr(r[n, i] >= t[i, j, k - 1] + g[i, j, k - 1] - (1 - theta[i, j, k, n])*M)
-                    model.addConstr(r[n, i] <= t[i, j, k] + g[i, j, k] + (1 - theta[i, j, k, n])*M)
+                    model.addConstr(r[n, i] <= t[i, j, k] + g[i, j, k] + epsilon + (1 - theta[i, j, k, n])*M)
                     # 交叉口公交车辆延误
                     model.addConstr(d_[n, i] >= t[i, j, k] + Q_ij - r[n, i] - (1 - theta[i, j, k, n])*M)
                     model.addConstr(d_[n, i] <= t[i, j, k] + Q_ij - r[n, i] + (1 - theta[i, j, k, n])*M)
@@ -234,6 +238,9 @@ def optimize(**kwargs):
             if nextStopInd != 0:
                 traj_t += [0]
                 traj_x += [p_bus_0[n]]
+                if nextStopInd == nextIntInd:
+                    traj_t += [t_arr[n, nextStopInd].x]
+                    traj_x += [POS_stop[nextStopInd]]    
             else:
                 if p_bus_0[n] == INI:
                     traj_t += [t_arr_plan[n, 0]-(POS_stop[0]/v_avg), t_arr_plan[n, 0]]
@@ -244,10 +251,10 @@ def optimize(**kwargs):
             # 填写traj
             for i in range(nextIntInd, i_max[n]):
                 if d_[n, i].x <= 0:
-                    traj_t += [t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x]
+                    traj_t += [r[n, i].x, t_arr[n, i+1].x]
                     traj_x += [POS[i], POS_stop[i+1]]
                 else:
-                    traj_t += [t_arr[n, i].x+T_app[n, i].x, t_arr[n, i+1].x-T_dep[n, i].x, t_arr[n, i+1].x]
+                    traj_t += [r[n, i].x, r[n, i].x+d[n, i].x, t_arr[n, i+1].x]
                     traj_x += [POS[i], POS[i], POS_stop[i+1]]
                 for k in range(K + K_ini):
                     theta_[i, k, n] = theta[i, J_bus[0], k, n].x

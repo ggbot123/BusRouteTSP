@@ -31,6 +31,12 @@ def round_and_adjust(T):
 def getBusIndBeforeJunc(p_bus, id):
     return np.where((p_bus < POS_JUNC[id]))[0]
 
+def nextNode(p_bus):
+    if np.where(p_bus < POS_STOP)[0][0] == np.where(p_bus < POS_JUNC)[0][0]:
+        return 'STOP'
+    else:
+        return 'JUNC'
+
 def getIniTlsCurr(T, t):
     # 初始化结果数组
     result = np.zeros_like(T)
@@ -246,10 +252,11 @@ def myplot(POS, POS_stop, phase, timetable):
         plt.scatter(valid_times, valid_positions, label=f'Bus {m+1}', s=20)
 
     plt.tight_layout()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
     plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
     plt.show()
 
-def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, DIRNAME, cnt, sample=None):
+def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, T_board_past, DIRNAME, cnt, sample=None):
     YR = 3
     N = len(busArrPlan)
     I = len(tlsPlan)
@@ -290,10 +297,13 @@ def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_M
 
     for s in range(num_sample):
         arrTimeList = INI * np.ones([N, 6])
+        Ts_past = T_board_past.copy()
         for n in range(N):
             isFail = 0
             pos = busArrPlan[n][1, 0]
             t = busArrPlan[n][0, 0]
+            if Ts_past[n] > 0:
+                busArrPlan[n] = np.insert(busArrPlan[n], 0, np.array([t, pos]), axis=1)
             traj_t, traj_x = [t], [pos] 
             for t_arr in busArrPlan[n][:, 1:].T:
                 t_arr_plan = t_arr[0]
@@ -313,6 +323,8 @@ def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_M
                     else:
                         Ts = sample[sample_cnt]
                         sample_cnt += 1
+                    Ts = Ts - Ts_past[n]
+                    Ts_past[n] = 0
                     stopId = int(np.where(POS_STOP == nextPOS)[0])
                     arrTimeList[n, stopId] = t_arr_act
                     t_arr_act += Ts

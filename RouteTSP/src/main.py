@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import logging
 import datetime
+import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
@@ -20,9 +21,8 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 800
 SIM_STEP = 1
-UPPER_CONTROL_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
 PLAN_STEP = 5
@@ -50,7 +50,7 @@ BAR_PHASE = BG_PHASE_SEQ[:, :, [0, 2]]
 COORD_PHASE = [2, 6]
 BUS_PHASE = [2]
 G_MIN = 8  # 最小绿灯时间
-COEFF_XC = 1  # 临界饱和系数
+COEFF_XC = 0.9  # 临界饱和系数
 INI = -10000
 POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
@@ -64,6 +64,7 @@ STOP_DUR = 15*np.array([1, 1, 1, 1, 1, 1])
 TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
+recordTimeList = np.arange(0, 3600, 5)
 
 class Vehicle:
     def __init__(self, vehId, timeStep):
@@ -87,7 +88,6 @@ class Bus(Vehicle):
         self.avgTimeRef = None
         self.nextUpdatePos = None
         self.waitTime = 0
-        # 关闭所有sumo速度限制
         # traci.vehicle.setSpeedMode(vehId, 0b011000)
     def update(self, timeStep):
         super().update(timeStep)
@@ -114,17 +114,27 @@ class Bus(Vehicle):
         self.avgTimeRefPlan = np.array([plan[1], plan[0]])
         self.nextUpdatePos = self.avgTimeRefPlan[0, 0]
     def upperControl(self):
-        self.avgTimeRefPlan = np.delete(self.avgTimeRefPlan, 0, axis=1)
-        if self.avgTimeRefPlan.shape[1] > 0:
-            self.nextUpdatePos = self.avgTimeRefPlan[0, 0]
+        if self.nextUpdatePos is not None:
+            if self.pos[0] >= self.nextUpdatePos - 0.1:
+                self.avgTimeRefPlan = np.delete(self.avgTimeRefPlan, 0, axis=1)
+                if self.avgTimeRefPlan.shape[1] > 0:
+                    self.nextUpdatePos = self.avgTimeRefPlan[0, 0]
+                else:
+                    self.nextUpdatePos = float('inf')
+                    return
             self.avgTimeRef = self.avgTimeRefPlan[1, 0]
-        else:
-            self.nextUpdatePos = float('inf')
     def lowerControl(self, timeStep):
         if traci.vehicle.isAtBusStop(self.id):
             traci.vehicle.setSpeed(self.id, 0)
         elif self.avgTimeRef is not None:
-            speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
+            if self.nextUpdatePos in POS_JUNC:
+                # 过路口时留5s裕量
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 5 - timeStep, 1)
+                # speedRef = V_MAX
+            elif self.nextUpdatePos in POS_STOP:
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
+            else:
+                speedRef = V_MAX
             traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
 
 class BusStop:
@@ -182,8 +192,11 @@ class sumoEnv:
     def __init__(self):
         sumoEnv.busStopDict = {bsId: BusStop(bsId) for bsId in traci.busstop.getIDList()}
         sumoEnv.trafficLightDict = {tlsId: TrafficLight(tlsId) for tlsId in traci.trafficlight.getIDList()}
-        sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(10)]) for i in range(len(BG_PHASE_LEN))]
+        sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
+
     def update(self, vehIdList, timeStep):
+        if timeStep == 400:
+            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for vehId in busIdList:
@@ -195,13 +208,20 @@ class sumoEnv:
             if sumoEnv.runningBusDict[vehId].pos[0] >= POS_STOP[-1]:
                 del sumoEnv.runningBusDict[vehId]
         sumoEnv.allBusDict.update(self.runningBusDict)
+        # 对于新生成的尚无计划的公交，更新其计划
+        for busId, bus in sumoEnv.runningBusDict.items():
+            if bus.avgTimeRefPlan is None:
+                sumoEnv.runningBusListSorted = sorted(sumoEnv.runningBusDict.values(), key=lambda x: x.pos[0], reverse=True) 
+                if busId in sumoEnv.busArrTimePlan:
+                    bus.updatePlan(sumoEnv.busArrTimePlan[busId])
+            bus.upperControl()
         for stopId in sumoEnv.busStopDict:
             sumoEnv.busStopDict[stopId].update(timeStep)
         for tlsId in sumoEnv.trafficLightDict:
             sumoEnv.trafficLightDict[tlsId].update(timeStep)
         sumoEnv.volumeData = np.concatenate((sumoEnv.volumeData[..., 1:], np.zeros((sumoEnv.volumeData.shape[0], sumoEnv.volumeData.shape[1], 1))), axis=-1)
         for detId in traci.inductionloop.getIDList():
-            sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)
+            sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)      
 
     def genInput(self, timeStep):
         # 构造优化模型输入
@@ -219,12 +239,10 @@ class sumoEnv:
         inputDict['V_ij'] = VOLUME
         inputDict['S_ij'] = S
         inputDict['p_bus_0'] = np.array([bus.pos[0] for bus in sumoEnv.runningBusListSorted] + [INI]*(maxPlanInd - maxRunningInd - 1))
-        
         # 注：隐含意思是不区分完成时刻表的具体车辆，即发生超车时前后车时刻表也要交换
         inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:maxPlanInd, :] - timeStep
         inputDict['Q_ij'] = 0
         inputDict['T_board_past'] = [bus.waitTime for bus in sumoEnv.runningBusListSorted]
-
         tlsPadT = []
         tlsPadt = []
         jCurrList = []
@@ -239,21 +257,28 @@ class sumoEnv:
             tlsPadt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
         for p in tlsCurrT:
             tlsCurrt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
-
         inputDict['tls_pad_T'] = tlsPadT.copy()
         inputDict['tls_pad_t'] = tlsPadt.copy()
         inputDict['j_curr'] = jCurrList.copy()
         inputDict['tls_curr_T'] = tlsCurrT.copy()
         inputDict['tls_curr_t'] = tlsCurrt.copy()
+        if timeStep in recordTimeList:
+            with open(f"{rootPath}\\RouteTSP\\result\\inputData\\time={timeStep}.pkl", "wb") as f:
+                pickle.dump(inputDict, f)
         return inputDict
 
     def plan(self, timeStep):
         if not sumoEnv.runningBusDict:
             return
         # 调用MRTSP-SA算法
-        sumoEnv.tlsPlan, sumoEnv.busArrTimePlan = optimize(**self.genInput(timeStep))
+        sumoEnv.tlsPlan, sumoEnv.busArrTimePlan, _ = optimize(**self.genInput(timeStep))
+        # 记录优化模型输出
+        if timeStep in recordTimeList:
+            with open(f"{rootPath}\\RouteTSP\\result\\outputData\\time={timeStep}.pkl", "wb") as f:
+                outputDict = {'tlsPlan': sumoEnv.tlsPlan, 'busArrPlan': sumoEnv.busArrTimePlan}
+                pickle.dump(outputDict, f)
         # 记录公交到达时刻规划结果
-        sumoEnv.busArrTimePlan = {str(getIndfromId('bus', sumoEnv.runningBusListSorted[0].id) + i): [plan[0] + timeStep, plan[1]] 
+        sumoEnv.busArrTimePlan = {str(getIndfromId('bus', sumoEnv.runningBusListSorted[0].id) + i): [plan[0][1:] + timeStep, plan[1][1:]] 
                                   for i, plan in enumerate(sumoEnv.busArrTimePlan)}
         # 更新信号配时计划
         for tls in sumoEnv.trafficLightDict.values():
@@ -261,19 +286,7 @@ class sumoEnv:
         # 更新公交到达时刻计划
         for bus in sumoEnv.runningBusListSorted:
             bus.updatePlan(sumoEnv.busArrTimePlan[bus.id])
-        # 记录优化模型输出
-        # savePlan(timeStep, sumoEnv.tlsPlan, sumoEnv.busArrTimePlan, int(timeStep/(SIM_STEP*PLAN_STEP)))
 
-    def upperControl(self):
-        for busId, bus in sumoEnv.runningBusDict.items():
-            # 对于新生成的尚无计划的公交，更新其计划
-            if bus.avgTimeRefPlan is None:
-                sumoEnv.runningBusListSorted = sorted(sumoEnv.runningBusDict.values(), key=lambda x: x.pos[0], reverse=True) 
-                if busId in sumoEnv.busArrTimePlan:
-                    bus.updatePlan(sumoEnv.busArrTimePlan[busId])
-            # 检查是否该更新参考速度
-            if bus.nextUpdatePos is not None and bus.pos[0] >= bus.nextUpdatePos - 0.1:
-                bus.upperControl()
     def lowerControl(self, timeStep):
         for bus in sumoEnv.runningBusDict.values():
             bus.lowerControl(timeStep)
@@ -305,8 +318,6 @@ if __name__ == '__main__':
         if step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0:
             print("Planning...\n")
             env.plan(timeStep)
-        if step % UPPER_CONTROL_STEP == 0:
-            env.upperControl()
         if step % LOWER_CONTROL_STEP == 0:
             env.lowerControl(timeStep)
         traci.simulationStep()

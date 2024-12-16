@@ -37,11 +37,10 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
     tls_pad_t = np.insert(np.delete(tls_pad_T, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
 
     # 随机变量样本生成：1000个样本，每个样本是长度为N的向量，服从N(0, 1)
-    num_samples = 100  # 样本数量
+    num_samples = 50  # 样本数量
     np.random.seed(0)
-    # Ts_means = np.array([2, 2, 2, 2, 2, 2])
-    Ts_means = T_board
-    Ts_devs = np.array([1, 1, 1, 1, 1, 1])*10
+    Ts_means = T_board[id]
+    Ts_devs = 10
     Z = np.random.normal(0, 1, (num_samples, N))
     Ts = np.maximum(Ts_means + Z * Ts_devs, 10*np.ones_like(Ts_means))
     Ts = np.minimum(Ts_means + Z * Ts_devs, 30*np.ones_like(Ts_means))
@@ -61,12 +60,11 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
         for j in np.concatenate((J[id][0], J[id][1])):
             t[j, k] = model.addVar(name=f't{j}{k}', lb=t_lb)
             g[j, k] = model.addVar(name=f'g{j}{k}', lb=0)
+            y[j, k] = model.addVar(name=f'y{j}{k}', lb=0, ub=10)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-gb.GRB.INFINITY)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-5, ub=5)
-            y[j, k] = model.addVar(name=f'y{j}{k}', lb=-10, ub=10)
+            # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-10, ub=10)
 
-
-        
     # （辅助）决策变量-实际到达交叉口时刻 r_act(n)
     r_act = model.addVars(num_samples, N, lb=-gb.GRB.INFINITY, name="r_act")
     t_arr_next_ = model.addVars(num_samples, N,  lb=-gb.GRB.INFINITY, name=f't_arr_next_')
@@ -77,8 +75,8 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
     # z = model.addVars(num_samples, vtype=gb.GRB.BINARY, name="z")
 
     # 设置目标函数
-    wc = 0
-    wb = 1
+    wc = 0.3
+    wb = 0.7
     objective_expr = gb.LinExpr()
     for j in range(1, 9):
         for k in range(K + K_ini):
@@ -122,8 +120,9 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
                         j_oth = J_barrier[id][1][np.where(J_barrier[id][0] == j)][0]
                         model.addConstr(t[j, k] == t[j_oth, k])                   
                     # 目标函数辅助约束
-                    # model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
-                    model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    model.addConstr(T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR >= -10)
+                    # model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # model.addConstr(y[j, k] == tlsPlan[id][k - (len(tls_pad_T) - 1)][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # 最小绿时约束
                     model.addConstr(g[j, k] >= G_min)
@@ -133,16 +132,18 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
     for i in range(num_samples):
         for n in range(N):
             if p_bus_0[n] < POS_stop[id]:
-                model.addGenConstrPWL(r[n], r_act[i, n], [t_arr[n], (t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max) + 1],
-                                    [(t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max), (t_arr[n] + Ts[i, n] + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, id] + L_app[id]/v_max)
+                model.addGenConstrPWL(r[n], r_act[i, n], 
+                                    [t_arr[n], (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1],
+                                    [(t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
             elif p_bus_0[n] < POS[id]:
-                T_board_left = 0 if T_board_past[n] == 0 else T_board[id] - T_board_past[n]
+                T_board_left = 0 if T_board_past[n] == 0 else Ts[i, id] - T_board_past[n]
+                # model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_max)
                 model.addGenConstrPWL(r[n], r_act[i, n], 
                                      [0, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1],
                                      [T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1], name=f"pwl_{i}_{n}")
             else: 
                 continue
-            # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, n] + L_app[id]/v_max)
             for j in J_bus:
                 # beta = 0，表示放弃在给定窗口通过
                 model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - M * beta[i, n])
@@ -155,29 +156,18 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
     # 期望到达时刻约束
     model.addConstrs((r[n] <= t_arr_next[n] - L_dep[id]/v_max for n in range(N)), name="arrival_plan")
 
-    # 机会约束 - 在给定相位通过
-    # for j in J_bus:
-    #     model.addConstrs((r_act[i, n] >= t[j, k_tar[n]] - M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="lower_bound")
-    #     model.addConstrs((r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] - YR + M * (1 - z[i]) for i in range(num_samples) for n in range(N)), name="upper_bound")
-
-    # 设置满足比例约束
-    # model.addConstr(gb.quicksum(z[i] for i in range(num_samples)) >= (1 - alpha) * num_samples)
-
     # 求解
     # model.update()
     model.optimize()
 
     # 检查求解结果
     if model.status == gb.GRB.OPTIMAL:
-        # T_sol = np.zeros([K] + list(J[id].shape))
         T_sol = []
         for k in range((len(tls_pad_T) - 1), (K + K_ini)):
             Tk = round_and_adjust(np.array([g[j, k].x + YR for j in np.concatenate((J[id][0], J[id][1]))]).reshape(J[id].shape))
             T_sol.append(Tk)
         for l in [0, 1]:
             T_sol[0][l][0:(j_curr[l] + 1)] -= tls_pad_T[-1][l][0:(j_curr[l] + 1)]
-        # for k in range(K):   
-        #     T_sol[k] = round_and_adjust(np.array([g[j, k].x + YR for j in np.concatenate((J[id][0], J[id][1]))]).reshape(J[id].shape))
         r_opt = [r[i].X for i in range(N)]
         J_tls = 0
         J_arr = 0
@@ -196,15 +186,7 @@ def local_SP(id, tlsPlan, t_arr, t_arr_next, theta, busInd, **kwargs):
 
         busArrPlan = []
         for n in range(N):
-            if p_bus_0[n] == INI:
-                if id == 0:
-                    traj = np.array([[t_arr[n] - 20, t_arr[n], r_opt[n], t_arr_next[n]], [0, POS_stop[0], POS[0], POS_stop[1]]])
-                else:
-                    traj = np.array([[t_arr[n], r_opt[n], t_arr_next[n]], [POS_stop[id], POS[id], POS_stop[id + 1]]])
-            elif p_bus_0[n] < POS[id]:
-                traj = np.array([[0, r_opt[n], t_arr_next[n]], [p_bus_0[n], POS[id], POS_stop[id + 1]]])
-            else:
-                traj = np.array([[0, t_arr_next[n]], [p_bus_0[n], POS_stop[id + 1]]])
+            traj = np.array([[r_opt[n], t_arr_next[n]], [POS[id], POS_stop[id + 1]]])
             busArrPlan.append(traj)
 
     else:

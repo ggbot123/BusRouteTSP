@@ -4,11 +4,11 @@ sys.path.append(rootPath)
 import numpy as np
 from optimize_new import optimize
 from local_SP import local_SP
-from tools import local_SP_plot, getBusIndBeforeJunc
+from tools import local_SP_plot, getBusIndBeforeJunc, nextNode
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
 
-timeStep = 23
+timeStep = 220
 I = 5
 MIN_STOP_DUR = 5
 PER_BOARD_DUR = 3
@@ -75,7 +75,8 @@ tlsCurrT = [np.array([[ 3., 48., 23., 15.], [25., 26., 12., 26.]]),
 tlsCurrt = []
 for p in tlsCurrT:
     tlsCurrt.append(np.insert(np.delete(p, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1))
-BUS_POS = np.array([270, INI, INI, INI, INI, INI])
+BUS_POS = np.array([2120, 600, INI, INI, INI, INI])
+T_board_past = np.array([10, 0, 0, 0, 0, 0])
 
 def genInput(timeStep):
     # 构造优化模型输入
@@ -92,7 +93,7 @@ def genInput(timeStep):
     inputDict['tls_pad_T'] = tlsPadT.copy()
     inputDict['tls_pad_t'] = tlsPadt.copy()
     inputDict['j_curr'] = jCurrList.copy()
-    inputDict['T_board_past'] = np.array([0, 0, 0, 0, 0, 0])
+    inputDict['T_board_past'] = T_board_past.copy()
     inputDict['tls_curr_T'] = tlsCurrT.copy()
     inputDict['tls_curr_t'] = tlsCurrt.copy()
     return inputDict
@@ -100,19 +101,19 @@ def genInput(timeStep):
 tlsPlan, busArrTimePlan, theta = optimize(**genInput(timeStep)) 
 busArrTimePlan = [np.array([plan[0] + timeStep, plan[1]]) for plan in busArrTimePlan]
 tlsPlan_ = []
-busArrTimePlan_ = []
+busArrTimePlan_ = [np.array([[plan[0, 0]-timeStep], [plan[1, 0]]]) for plan in busArrTimePlan]
 for i in range(I):
-    if i == 1:
-        pass
     busInd = getBusIndBeforeJunc(BUS_POS, i)
     t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
     t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
     tlsPlani_, busArrTimePlani_ = local_SP(i, tlsPlan, t_arr, t_arr_next, theta[i], busInd, **genInput(timeStep))
     tlsPlan_.append(tlsPlani_)
-    if i == 0:
-        busArrTimePlan_ = [np.array(busArrTimePlani_[n - busInd[0]]) for n in busInd]
-    else:
-        busArrTimePlan_ = [np.append(busArrTimePlan_[n], busArrTimePlani_[n - busInd[0]][:, 1:], axis=1) for n in busInd]
+    for n in busInd:
+        if len(busArrTimePlan_[n][0]) == 1:
+            if nextNode(busArrTimePlan_[n][1, 0]) == 'STOP':
+                plan = (busArrTimePlan[n][:, 1] - [timeStep, 0]).reshape(-1, 1)
+                busArrTimePlan_[n] = np.append(busArrTimePlan_[n], plan, axis=1)
+        busArrTimePlan_[n] = np.append(busArrTimePlan_[n], busArrTimePlani_[n - busInd[0]], axis=1)
 busArrTimePlan_ = [np.array([plan[0] + timeStep, plan[1]]) for plan in busArrTimePlan_]
 
 for i in range(len(tlsPlan_)):
@@ -128,8 +129,8 @@ for cnt in range(MAXITER):
     # Ts = np.random.normal(10, 3*PER_BOARD_DUR, 3000)
     # Ts = 10 * np.ones(3000)
     fail_cnt_origin += local_SP_plot(timeStep, [np.array(plan) for plan in tlsPlan], busArrTimePlan, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]],
-                   PER_BOARD_DUR, V_MAX, TIMETABLE, 'original', cnt, Ts)
+                   PER_BOARD_DUR, V_MAX, TIMETABLE, T_board_past.copy(), 'original', cnt, Ts)
     fail_cnt_SP += local_SP_plot(timeStep, [np.array(plan) for plan in tlsPlan_], busArrTimePlan_, [[0, 1], [0, 1], [0, 1], [0, 0], [0, 0]], 
-                  PER_BOARD_DUR, V_MAX, TIMETABLE, 'local_SP', cnt, Ts)
+                  PER_BOARD_DUR, V_MAX, TIMETABLE, T_board_past.copy(), 'local_SP', cnt, Ts)
 print(fail_cnt_origin/(MAXITER * 10 * 6))
 print(fail_cnt_SP/(MAXITER * 10 * 6))
