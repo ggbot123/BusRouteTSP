@@ -19,8 +19,11 @@ def output_busStops(stops):
     #              ['np12_nt5_0', 'nt5_nt4_0', 'nt4_nt3_0', 'nt3_nt2_0', 'nt2_nt1_0']]
     
     for i in range(6):
-        str_adds += stops % (('AtoB_' + str(i)), laneIDSet[0][i], posSet[0][i], posSet[0][i] + 20, "A2B") 
+        if i == 0:
+            str_adds += stops % (('AtoB_' + str(i)), laneIDSet[0][i], posSet[0][i] - 20, posSet[0][i], "A2B") 
+        else:
+            str_adds += stops % (('AtoB_' + str(i)), laneIDSet[0][i], posSet[0][i] - 20 - 13.6*2, posSet[0][i] - 13.6*2, "A2B") 
     for i in range(5):
-        str_adds += stops % (('BtoA_' + str(i)), laneIDSet[1][i], posSet[1][i], posSet[1][i] + 20, "B2A") 
+        str_adds += stops % (('BtoA_' + str(i)), laneIDSet[1][i], posSet[1][i] - 20 - 13.6, posSet[1][i] - 13.6, "B2A") 
     
     return str_adds

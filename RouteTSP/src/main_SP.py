@@ -11,8 +11,9 @@ import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr
+from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode
 from optimize_new import optimize
+from local_SP import local_SP
 # from flexible_optimize import optimize
 
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -106,6 +107,7 @@ class Bus(Vehicle):
                 Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
+                # traci.vehicle.setBusStop(self.id, stopId, duration=0)
                 self.atBusStop = stopId
                 self.arrTimeDict[self.atBusStop] = timeStep
             else:
@@ -200,8 +202,6 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
-        if timeStep == 400:
-            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for vehId in busIdList:
@@ -234,7 +234,6 @@ class sumoEnv:
         minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
         maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
         maxPlanInd = np.where(TIMETABLE[:, 0] > timeStep + (PLANNED_CYCLE_NUM - 1)*BG_CYCLE_LEN)[0][0]
-        
         inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
                      'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
                      'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
@@ -247,7 +246,8 @@ class sumoEnv:
         # 注：隐含意思是不区分完成时刻表的具体车辆，即发生超车时前后车时刻表也要交换
         inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:maxPlanInd, :] - timeStep
         inputDict['Q_ij'] = 0
-        inputDict['T_board_past'] = [bus.waitTime for bus in sumoEnv.runningBusListSorted]
+        inputDict['T_board_past'] = [bus.waitTime for bus in sumoEnv.runningBusListSorted
+                                     ] + [0 for _ in range(PLANNED_BUS_NUM - len(sumoEnv.runningBusListSorted))]
         tlsPadT = []
         tlsPadt = []
         jCurrList = []
@@ -276,7 +276,28 @@ class sumoEnv:
         if not sumoEnv.runningBusDict:
             return
         # 调用MRTSP-SA算法
-        sumoEnv.tlsPlan, sumoEnv.busArrTimePlan, _ = optimize(**self.genInput(timeStep))
+        inputDict = self.genInput(timeStep)
+        tlsPlan, busArrTimePlan, theta = optimize(**inputDict)
+        busArrTimePlan = [np.array(plan) for plan in busArrTimePlan]
+        sumoEnv.tlsPlan = []
+        sumoEnv.busArrTimePlan = [plan[:, 0].reshape(-1, 1) for plan in busArrTimePlan]
+        I = inputDict['I']
+        p_bus_0 = inputDict['p_bus_0'][:PLANNED_BUS_NUM]
+        for n in range(PLANNED_BUS_NUM):
+            if (p_bus_0[n] > POS_JUNC[I - 1]) and (p_bus_0[n] < POS_STOP[I]):
+                sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], busArrTimePlan[n][:, -1].reshape(-1, 1), axis=1)
+        for i in range(I):
+            busInd = getBusIndBeforeJunc(p_bus_0, i)
+            t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
+            t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
+            tlsPlani_, busArrTimePlani_ = local_SP(i, tlsPlan, t_arr, t_arr_next, theta[i], busInd, **inputDict)
+            sumoEnv.tlsPlan.append(tlsPlani_)
+            for n in busInd:
+                if len(sumoEnv.busArrTimePlan[n][0]) == 1:
+                    if nextNode(p_bus_0[n]) == 'STOP':
+                        plan = busArrTimePlan[n][:, 1].reshape(-1, 1)
+                        sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], plan, axis=1)
+                sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], busArrTimePlani_[n - busInd[0]], axis=1)
         # 记录优化模型输出
         if timeStep in recordTimeList:
             with open(f"{rootPath}\\RouteTSP\\result\\outputData\\time={timeStep}.pkl", "wb") as f:

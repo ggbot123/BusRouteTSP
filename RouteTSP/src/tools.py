@@ -107,6 +107,9 @@ def getIndfromId(type, id):
     if type == 'det':
         jId, pId = id.split('_')[1], id.split('_')[2]
         return myDict['tls'][jId], int(pId) - 1
+    if type == 'stop':
+        sId = id.split('_')[1]
+        return int(sId)
     else:
         return int(id)
     
@@ -189,6 +192,8 @@ def readPlan():
     return data_series
 
 def myplot(POS, POS_stop, phase, timetable):
+    PLAN_START = 10
+    PLAN_STEP = 50
     # 读取文件
     bus_speed_file = f'{rootPath}\\RouteTSP\\result\\bus_speed_profile.csv'
     tls_state_file = f'{rootPath}\\RouteTSP\\result\\tlsState_profile.csv'
@@ -250,6 +255,10 @@ def myplot(POS, POS_stop, phase, timetable):
 
         # 绘制筛选后的到达时间和站点位置
         plt.scatter(valid_times, valid_positions, label=f'Bus {m+1}', s=20)
+
+    # 手动绘制网格线
+    for x_value in np.arange(PLAN_START, time_range[-1], PLAN_STEP):
+        ax1.axvline(x=x_value, color='gray', linestyle='--', linewidth=0.7)
 
     plt.tight_layout()
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)

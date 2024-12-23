@@ -1,4 +1,4 @@
-SPEED_LIMIT = 15 #速度限制
+SPEED_LIMIT = 20 #速度限制
 
 #定义路段类型type
 def output_road_types():
