@@ -29,10 +29,10 @@ def round_and_adjust(T):
     return T
         
 def getBusIndBeforeJunc(p_bus, id):
-    return np.where((p_bus < POS_JUNC[id]))[0]
+    return np.where((p_bus <= POS_JUNC[id]))[0]
 
 def nextNode(p_bus):
-    if np.where(p_bus < POS_STOP)[0][0] == np.where(p_bus < POS_JUNC)[0][0]:
+    if np.where(p_bus < POS_STOP)[0][0] == np.where(p_bus <= POS_JUNC)[0][0]:
         return 'STOP'
     else:
         return 'JUNC'

@@ -80,7 +80,7 @@ def optimize(**kwargs):
                 # g[i, j, k] = model.addVar(vtype=gb.GRB.INTEGER, name=f'g{i}{j}{k}')
                 t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
-                y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-gb.GRB.INFINITY)
+                # y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-gb.GRB.INFINITY)
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-10, ub=10)
 
                 # 初始解
@@ -95,11 +95,15 @@ def optimize(**kwargs):
     for i in range(I):
         for j in range(1, 9):
             for k in range(K + K_ini):
-                objective_expr += w_c * y[i, j, k]**2
+                # objective_expr += w_c * y[i, j, k]**2
+                objective_expr += w_c * y[i, j, k]
     for n in range(N):
         for i in range(i_max[n]):
-            objective_expr += w_b * (t_dev[n, i]**2 + 0.0001*d[n, i]**2)
-        objective_expr += w_b * t_dev[n, i_max[n]]**2
+            # objective_expr += w_b * (t_dev[n, i]**2 + 0.0001*d[n, i]**2)
+            objective_expr += w_b * (t_dev[n, i] + 0.00001*d[n, i])
+            # objective_expr += w_b * t_dev[n, i]**2
+        # objective_expr += w_b * t_dev[n, i_max[n]]**2
+        objective_expr += w_b * t_dev[n, i_max[n]]
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 设置约束
@@ -150,17 +154,21 @@ def optimize(**kwargs):
     for n in range(N):
         # 初始化
         nextStopInd = np.where(p_bus_0[n] < POS_stop)[0][0] # 下一站点索引，若后面无站点，该车将不会进入算法
-        nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
+        nextIntInd = np.where(p_bus_0[n] <= POS)[0][0] if len(np.where(p_bus_0[n] <= POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
         # case 1：还没发车
-        if p_bus_0[n] == INI or nextStopInd == 0:
-            if p_bus_0[n] == INI or (POS_stop[nextStopInd] - p_bus_0[n])/v_max < t_arr_plan[n, 0]:
+        if nextStopInd == 0:
+            if p_bus_0[n] == INI or ((POS_stop[nextStopInd] - p_bus_0[n])/v_max <= t_arr_plan[n, 0]
+                                     ) and ((POS_stop[nextStopInd] - p_bus_0[n])/v_min >= t_arr_plan[n, 0]):
                 model.addConstr(t_arr[n, 0] == t_arr_plan[n, 0])
-            else:
+            elif (POS_stop[nextStopInd] - p_bus_0[n])/v_max > t_arr_plan[n, 0]:
                 model.addConstr(t_arr[n, 0] == (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
+            else:
+                model.addConstr(t_arr[n, 0] == (POS_stop[nextStopInd] - p_bus_0[n])/v_min)
         # case 2：处于交叉口-下一站点之间
         elif nextIntInd == nextStopInd:
             model.addConstr(t_arr[n, nextStopInd] == T_dep[n, nextStopInd-1])
             model.addConstr(T_dep[n, nextStopInd-1] >= (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
+            model.addConstr(T_dep[n, nextStopInd-1] <= (POS_stop[nextStopInd] - p_bus_0[n])/v_min)
         # case 3: 处于上一站点-交叉口之间
         else:
             if T_board_past[n] == 0:
@@ -168,6 +176,7 @@ def optimize(**kwargs):
             else:
                 model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd] + T_board[nextStopInd-1] - T_board_past[n])
             model.addConstr(T_app[n, nextIntInd] >= (POS[nextIntInd] - p_bus_0[n])/v_max)
+            model.addConstr(T_app[n, nextIntInd] <= (POS[nextIntInd] - p_bus_0[n])/v_min)
 
         for i in range(nextIntInd, i_max[n]):
             # 公交行驶时间模型约束
@@ -186,22 +195,25 @@ def optimize(**kwargs):
                     model.addConstr(d_[n, i] >= t[i, j, k] + Q_ij - r[n, i] - (1 - theta[i, j, k, n])*M)
                     model.addConstr(d_[n, i] <= t[i, j, k] + Q_ij - r[n, i] + (1 - theta[i, j, k, n])*M)
             # 辅助约束，保证延误非负
-            # model.addConstr(d_[n, i] <= (1 - beta[n, i])*M)
-            # model.addConstr(d_[n, i] >= -beta[n, i]*M)
-            # model.addConstr(d[n, i] >= d_[n, i] - beta[n, i]*M)
-            model.addConstr(d[n, i] >= d_[n, i])
-            model.addConstr(d[n, i] >= 0)
+            model.addConstr(d_[n, i] <= (1 - beta[n, i])*M)
+            model.addConstr(d_[n, i] >= -beta[n, i]*M)
+            # model.addConstr(d[n, i] >= d_[n, i])
+            # model.addConstr(d[n, i] >= 0)
+            model.addConstr(d[n, i] == (1 - beta[n, i])*d_[n, i])
             model.addConstr(r[n, i] + T_dep[n, i] + d[n, i] == t_arr[n, i + 1])
             # 公交车速约束
             if i == nextIntInd:
                 # case 3 这个约束前面已经加过了，这里不加
-                if p_bus_0[n] == INI or nextStopInd == 0 or nextIntInd == nextStopInd:
+                if nextStopInd == 0 or nextIntInd == nextStopInd:
                     model.addConstr(T_app[n, i] >= L_app[i]/v_max)
+                    model.addConstr(T_app[n, i] <= L_app[i]/v_min)
                     model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             else:
                 model.addConstr(T_app[n, i] >= L_app[i]/v_max)
+                model.addConstr(T_app[n, i] <= L_app[i]/v_min)
                 model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             model.addConstr(T_dep[n, i] >= L_dep[i]/v_max)
+            model.addConstr(T_dep[n, i] <= L_dep[i]/v_min)
             # 目标函数辅助约束(晚点时刻)
             # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n, i])
             # model.addConstr(t_dev[n, i] >= 0)
@@ -233,7 +245,7 @@ def optimize(**kwargs):
         for n in range(N):
             traj_t, traj_x = [], []
             nextStopInd = np.where(p_bus_0[n] < POS_stop)[0][0] # 下一站点索引，若后面无站点，该车将不会进入算法
-            nextIntInd = np.where(p_bus_0[n] < POS)[0][0] if len(np.where(p_bus_0[n] < POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
+            nextIntInd = np.where(p_bus_0[n] <= POS)[0][0] if len(np.where(p_bus_0[n] <= POS)[0]) > 0 else I  # 下一交叉口索引，若后面无交叉口，则填I
             # 边界条件处理
             if nextStopInd != 0:
                 traj_t += [0]
@@ -250,18 +262,19 @@ def optimize(**kwargs):
                     traj_x += [p_bus_0[n], POS_stop[0]]
             # 填写traj
             for i in range(nextIntInd, i_max[n]):
-                if d_[n, i].x <= 0:
-                    traj_t += [r[n, i].x, t_arr[n, i+1].x]
-                    traj_x += [POS[i], POS_stop[i+1]]
-                else:
-                    traj_t += [r[n, i].x, r[n, i].x+d[n, i].x, t_arr[n, i+1].x]
-                    traj_x += [POS[i], POS[i], POS_stop[i+1]]
+                # if d_[n, i].x <= 0:
+                traj_t += [r[n, i].x, t_arr[n, i+1].x]
+                traj_x += [POS[i], POS_stop[i+1]]
+                # else:
+                #     traj_t += [r[n, i].x, r[n, i].x+d[n, i].x, t_arr[n, i+1].x]
+                #     traj_x += [POS[i], POS[i], POS_stop[i+1]]
                 for k in range(K + K_ini):
                     theta_[i, k, n] = theta[i, J_bus[0], k, n].x
             Traj_sol[n][0] = np.append(Traj_sol[n][0], traj_t)
             Traj_sol[n][1] = np.append(Traj_sol[n][1], traj_x)
         # plotTSTP(FILENAME, J, T_sol, t_arr_plan, Traj_sol, 2, plotShow=False)
         # print(T_sol[1])
+        print("Global optimizer runtime (seconds):", model.Runtime)
     else:
         # 计算 IIS
         model.computeIIS()

@@ -26,7 +26,7 @@ SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
 PLAN_STEP = 50
-BUS_DEP_INI = 800
+BUS_DEP_INI = 0
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
 PLANNED_BUS_NUM = 6
@@ -59,13 +59,15 @@ L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
 V_MAX = 15
+V_MIN = 10
 Ts_means = 15
-Ts_devs = 10
+Ts_devs = 0
 np.random.seed(0)
 Z = np.random.normal(0, 1, (100, 6))
 Z[0, 0] = 0
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
+TIMETABLE = np.array([20 + BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
+                      for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
 recordTimeList = np.arange(0, 3600, 5)
@@ -140,7 +142,8 @@ class Bus(Vehicle):
                 speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
             else:
                 speedRef = V_MAX
-            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
+            # traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
+            traci.vehicle.setSpeed(self.id, max(min(speedRef, V_MAX), V_MIN))
 
 class BusStop:
     def __init__(self, stopId):
@@ -200,8 +203,6 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
-        if timeStep == 400:
-            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for vehId in busIdList:
@@ -238,7 +239,8 @@ class sumoEnv:
         inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
                      'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
                      'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
-                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
+                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'v_min': V_MIN,
+                     'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
                     }
         # inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
         inputDict['V_ij'] = VOLUME
@@ -273,6 +275,8 @@ class sumoEnv:
         return inputDict
 
     def plan(self, timeStep):
+        if timeStep >= 10:
+            pass
         if not sumoEnv.runningBusDict:
             return
         # 调用MRTSP-SA算法

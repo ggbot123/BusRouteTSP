@@ -57,9 +57,10 @@ POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
 L_APP = POS_JUNC - POS_STOP[:-1]
 L_DEP = POS_STOP[1:] - POS_JUNC
-V_AVG = 10
+V_AVG = 12
 BUS_DEP_HW = 2*60
 V_MAX = 15
+V_MIN = 10
 Ts_means = 15
 Ts_devs = 10
 np.random.seed(0)
@@ -136,13 +137,13 @@ class Bus(Vehicle):
         elif self.avgTimeRef is not None:
             if self.nextUpdatePos in POS_JUNC:
                 # 过路口时留5s裕量
-                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 5 - timeStep, 1)
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 0 - timeStep, 1)
                 # speedRef = V_MAX
             elif self.nextUpdatePos in POS_STOP:
                 speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
             else:
                 speedRef = V_MAX
-            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
+            traci.vehicle.setSpeed(self.id, max(min(speedRef, V_MAX), V_MIN))
 
 class BusStop:
     def __init__(self, stopId):
@@ -237,7 +238,8 @@ class sumoEnv:
         inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
                      'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
                      'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
-                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
+                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'v_min': V_MIN,
+                     'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
                     }
         # inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
         inputDict['V_ij'] = VOLUME
@@ -246,8 +248,8 @@ class sumoEnv:
         # 注：隐含意思是不区分完成时刻表的具体车辆，即发生超车时前后车时刻表也要交换
         inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:maxPlanInd, :] - timeStep
         inputDict['Q_ij'] = 0
-        inputDict['T_board_past'] = [bus.waitTime for bus in sumoEnv.runningBusListSorted
-                                     ] + [0 for _ in range(PLANNED_BUS_NUM - len(sumoEnv.runningBusListSorted))]
+        inputDict['T_board_past'] = np.array([bus.waitTime for bus in sumoEnv.runningBusListSorted
+                                     ] + [0 for _ in range(PLANNED_BUS_NUM - len(sumoEnv.runningBusListSorted))])
         tlsPadT = []
         tlsPadt = []
         jCurrList = []
@@ -273,6 +275,8 @@ class sumoEnv:
         return inputDict
 
     def plan(self, timeStep):
+        if timeStep == 3160:
+            pass
         if not sumoEnv.runningBusDict:
             return
         # 调用MRTSP-SA算法
