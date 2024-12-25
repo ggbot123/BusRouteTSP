@@ -1,6 +1,5 @@
 import gurobipy as gb
 import numpy as np
-from plotTSTP import plotTSTP
 import datetime
 from tools import round_and_adjust
 
@@ -95,15 +94,15 @@ def optimize(**kwargs):
     for i in range(I):
         for j in range(1, 9):
             for k in range(K + K_ini):
-                # objective_expr += w_c * y[i, j, k]**2
-                objective_expr += w_c * y[i, j, k]
+                objective_expr += w_c * y[i, j, k]**2
+                # objective_expr += w_c * y[i, j, k]
     for n in range(N):
         for i in range(i_max[n]):
-            # objective_expr += w_b * (t_dev[n, i]**2 + 0.0001*d[n, i]**2)
-            objective_expr += w_b * (t_dev[n, i] + 0.00001*d[n, i])
+            objective_expr += w_b * (t_dev[n, i]**2 + 0.0001*d[n, i]**2)
+            # objective_expr += w_b * (t_dev[n, i] + 0.00001*d[n, i])
             # objective_expr += w_b * t_dev[n, i]**2
-        # objective_expr += w_b * t_dev[n, i_max[n]]**2
-        objective_expr += w_b * t_dev[n, i_max[n]]
+        objective_expr += w_b * t_dev[n, i_max[n]]**2
+        # objective_expr += w_b * t_dev[n, i_max[n]]
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
     # 设置约束

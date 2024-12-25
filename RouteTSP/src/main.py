@@ -59,9 +59,9 @@ L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
 V_MAX = 15
-V_MIN = 10
+V_MIN = 8
 Ts_means = 15
-Ts_devs = 0
+Ts_devs = 15
 np.random.seed(0)
 Z = np.random.normal(0, 1, (100, 6))
 Z[0, 0] = 0
@@ -104,8 +104,8 @@ class Bus(Vehicle):
                 # 查询站点编号
                 stopId = traci.vehicle.getStops(self.id, 1)[0].stoppingPlaceID
                 # 设置停站时间
-                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 5*np.ones_like(Ts_means))
-                Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
+                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 1*np.ones_like(Ts_means))
+                Ts = np.minimum(Ts, 30*np.ones_like(Ts_means))
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
                 self.atBusStop = stopId

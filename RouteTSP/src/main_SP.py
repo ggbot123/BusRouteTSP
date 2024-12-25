@@ -57,12 +57,12 @@ POS_JUNC = np.array(posJunc).cumsum()
 POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
 L_APP = POS_JUNC - POS_STOP[:-1]
 L_DEP = POS_STOP[1:] - POS_JUNC
-V_AVG = 12
+V_AVG = 10
 BUS_DEP_HW = 2*60
 V_MAX = 15
-V_MIN = 10
+V_MIN = 8
 Ts_means = 15
-Ts_devs = 10
+Ts_devs = 15
 np.random.seed(0)
 Z = np.random.normal(0, 1, (100, 6))
 Z[0, 0] = 0
@@ -104,8 +104,8 @@ class Bus(Vehicle):
                 # 查询站点编号
                 stopId = traci.vehicle.getStops(self.id, 1)[0].stoppingPlaceID
                 # 设置停站时间
-                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 5*np.ones_like(Ts_means))
-                Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
+                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 1*np.ones_like(Ts_means))
+                Ts = np.minimum(Ts, 30*np.ones_like(Ts_means))
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
                 # traci.vehicle.setBusStop(self.id, stopId, duration=0)
@@ -116,6 +116,8 @@ class Bus(Vehicle):
                 self.waitTime += 1
                 self.waitTimeDict[self.atBusStop] += SIM_STEP
         else:
+            if self.waitTime > 0:
+                sumoEnv.eventTrigger = True
             self.atBusStop = None
             self.waitTime = 0
     def updatePlan(self, plan):
@@ -137,7 +139,7 @@ class Bus(Vehicle):
         elif self.avgTimeRef is not None:
             if self.nextUpdatePos in POS_JUNC:
                 # 过路口时留5s裕量
-                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 0 - timeStep, 1)
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 5 - timeStep, 1)
                 # speedRef = V_MAX
             elif self.nextUpdatePos in POS_STOP:
                 speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
@@ -197,6 +199,7 @@ class sumoEnv:
     volumeData = np.zeros([BG_PHASE_SEQ.shape[0], BG_PHASE_SEQ.shape[-1]*2, DETBUFFERLEN])
     busArrTimePlan = []
     tlsPlan = []
+    eventTrigger = False
     def __init__(self):
         sumoEnv.busStopDict = {bsId: BusStop(bsId) for bsId in traci.busstop.getIDList()}
         sumoEnv.trafficLightDict = {tlsId: TrafficLight(tlsId) for tlsId in traci.trafficlight.getIDList()}
@@ -293,8 +296,9 @@ class sumoEnv:
         for i in range(I):
             busInd = getBusIndBeforeJunc(p_bus_0, i)
             t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
+            r = np.array([busArrTimePlan[ind][0, 2*(i+1) - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
             t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            tlsPlani_, busArrTimePlani_ = local_SP(i, tlsPlan, t_arr, t_arr_next, theta[i], busInd, **inputDict)
+            tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, r, t_arr_next, theta[i], busInd, **inputDict)
             sumoEnv.tlsPlan.append(tlsPlani_)
             for n in busInd:
                 if len(sumoEnv.busArrTimePlan[n][0]) == 1:
@@ -345,9 +349,11 @@ if __name__ == '__main__':
     for step in tqdm(range(SIM_TIME)):
         timeStep = SIM_STEP*step
         env.update(traci.vehicle.getIDList(), timeStep)
-        if step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0:
+        # if (step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0) or sumoEnv.eventTrigger is True:
+        if (step >= PLAN_START and (step - PLAN_START) % PLAN_STEP == 0):
             print("Planning...\n")
             env.plan(timeStep)
+            sumoEnv.eventTrigger = False
         if step % LOWER_CONTROL_STEP == 0:
             env.lowerControl(timeStep)
         traci.simulationStep()
