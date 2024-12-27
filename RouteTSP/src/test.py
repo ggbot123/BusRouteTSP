@@ -7,7 +7,7 @@ from tools import getBusIndBeforeJunc, nextNode
 rootPath = r'E:\workspace\python\BusRouteTSP'
 
 # timeStepList = np.arange(150, 170, 5)
-timeStepList = [3510]
+timeStepList = [2710]
 for timeStep in timeStepList:
     with open(f"{rootPath}\\RouteTSP\\result\\inputData\\time={timeStep}.pkl", "rb") as f:
         inputDict = pickle.load(f)
@@ -27,7 +27,7 @@ for timeStep in timeStepList:
         t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
         r = np.array([busArrTimePlan[ind][0, 2*i + 2 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
         t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
-        tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, r, t_arr_next, theta[i], busInd, **inputDict)
+        tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], busInd, **inputDict)
         tlsPlan_.append(tlsPlani_)
         for n in busInd:
             if len(busArrTimePlan_[n][0]) == 1:

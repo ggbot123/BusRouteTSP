@@ -5,9 +5,10 @@ rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import round_and_adjust
+from scipy.stats import truncnorm
+from tools import round_and_adjust, local_SP_plot
 
-def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
+def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
     for key, value in kwargs.items():
         try:
             exec(f'{key} = {repr(value)}', globals())
@@ -38,18 +39,18 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
     num_samples = 50  # 样本数量
     np.random.seed(0)
     Ts_means = T_board[id]
-    Ts_devs = 15
+    Ts_devs = 10
     Z = np.random.normal(0, 1, (num_samples, I + 1))
     # Ts = np.maximum(Ts_means + Z * Ts_devs, 0*np.ones_like(Ts_means))
-    Ts = np.maximum(Ts_means + Z * Ts_devs, 5*np.ones_like(Ts_means))
-    Ts = np.minimum(Ts, 35*np.ones_like(Ts_means))
+    Ts = np.maximum(Ts_means + Z * Ts_devs, 10*np.ones_like(Ts_means))
+    Ts = np.minimum(Ts, 30*np.ones_like(Ts_means))
 
     # 创建Gurobi模型
     model = gb.Model("Local_SP")
     model.setParam('OutputFlag', 0)
 
     # 决策变量-期望到达交叉口时刻r(n)
-    # r = model.addVars(N, name="r")
+    r = model.addVars(N, lb=-gb.GRB.INFINITY, name="r")
 
     # 决策变量-信号配时t(j,k) & g(j,k)
     t = {}
@@ -59,32 +60,30 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
         for j in np.concatenate((J[id][0], J[id][1])):
             t[j, k] = model.addVar(name=f't{j}{k}', lb=t_lb)
             g[j, k] = model.addVar(name=f'g{j}{k}', lb=0)
-            # y[j, k] = model.addVar(name=f'y{j}{k}', lb=0, ub=10)
+            y[j, k] = model.addVar(name=f'y{j}{k}', lb=0, ub=10)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-gb.GRB.INFINITY)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-5, ub=5)
-            y[j, k] = model.addVar(name=f'y{j}{k}', lb=-10, ub=10)
+            # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-10, ub=10)
 
     # （辅助）决策变量-实际到达交叉口时刻 r_act(n)
     r_act = model.addVars(num_samples, N, lb=-gb.GRB.INFINITY, name="r_act")
     t_arr_next_ = model.addVars(num_samples, N,  lb=-gb.GRB.INFINITY, name=f't_arr_next_')
     t_dev = model.addVars(num_samples, N, name=f't_dev')
-    beta1 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta1')
-    beta2 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta2')
-    beta3 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta3')
+    beta = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta')
 
     # 0-1变量 z(s) 表示每个样本是否满足机会约束
     # z = model.addVars(num_samples, vtype=gb.GRB.BINARY, name="z")
 
     # 设置目标函数
-    wc = 0.001
-    wb = 0.999
+    wc = 0.3
+    wb = 0.7
     objective_expr = gb.LinExpr()
     for j in range(1, 9):
         for k in range(K + K_ini):
-            objective_expr += wc * y[j, k]**2
+            objective_expr += wc * y[j, k]
     for s in range(num_samples):
         for n in range(N):
-            objective_expr += wb * (t_dev[s, n]**2)/num_samples
+            objective_expr += wb * (t_dev[s, n])/num_samples
     
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
 
@@ -121,9 +120,9 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
                         j_oth = J_barrier[id][1][np.where(J_barrier[id][0] == j)][0]
                         model.addConstr(t[j, k] == t[j_oth, k])                   
                     # 目标函数辅助约束
-                    # model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
-                    # model.addConstr(T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR >= -10)
-                    model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
+                    model.addConstr(T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR >= -10)
+                    # model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # model.addConstr(y[j, k] == tlsPlan[id][k - (len(tls_pad_T) - 1)][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # 最小绿时约束
                     model.addConstr(g[j, k] >= G_min)
@@ -132,46 +131,33 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
     # 设置分段线性函数约束，使用 PWLConstr 表示每个样本的分段函数
     for i in range(num_samples):
         for n in range(N):
-            if p_bus_0[n] <= POS_stop[id]:
-                T_board_left = np.max([Ts[i, id] - T_board_past[busInd][n], 0])
-                if (id == 0 and p_bus_0[n] > 0) or p_bus_0[n] > POS[id - 1]:
-                    t_arr[n] = np.min([np.max([(POS_stop[id] - p_bus_0[n])/v_max, t_arr[n]]), (POS_stop[id] - p_bus_0[n])/v_min])
-                if r[n] < t_arr[n] + T_board_left + L_app[id]/v_max:
-                    model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_max)
-                elif r[n] > t_arr[n] + T_board_left + L_app[id]/v_min:
-                    model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_min)
-                else:
-                    model.addConstr(r_act[i, n] == r[n])
+            if p_bus_0[n] < POS_stop[id]:
+                # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, id] + L_app[id]/v_max)
+                model.addGenConstrPWL(r[n], r_act[i, n], 
+                                    [t_arr[n], (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1],
+                                    [(t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
             elif p_bus_0[n] < POS[id]:
-                if r[n] < (POS[id] - p_bus_0[n])/v_max:
-                    model.addConstr(r_act[i, n] == (POS[id] - p_bus_0[n])/v_max)
-                elif r[n] > (POS[id] - p_bus_0[n])/v_min:
-                    model.addConstr(r_act[i, n] == (POS[id] - p_bus_0[n])/v_min)
-                else:
-                    model.addConstr(r_act[i, n] == r[n])
+                T_board_left = 0 if T_board_past[n] == 0 else np.max([Ts[i, id] - T_board_past[n], 0])
+                # model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_max)
+                model.addGenConstrPWL(r[n], r_act[i, n], 
+                                     [0, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1],
+                                     [T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1], name=f"pwl_{i}_{n}")
             else: 
                 continue
             for j in J_bus:
-                model.addConstr(beta1[i, n] + beta2[i, n] + beta3[i, n] == 1)
-                # model.addConstr(beta2[i, n] + beta3[i, n] == 1)
-                # beta1 = 1：在k_tar绿灯亮起前到达
-                # model.addConstr(r_act[i, n] >= t[j, k_tar[n] - 1] - M * (1 - beta1[i, n]))
-                model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + M * (1 - beta1[i, n]))
-                # beta2 = 1：在k_tar绿灯时段到达
-                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta2[i, n]))
-                model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta2[i, n]))
-                # beta3 = 1：在k_tar绿灯结束后到达
-                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - M * (1 - beta3[i, n]))
-                model.addConstr(r_act[i, n] <= t[j, k_tar[n] + 1] + M * (1 - beta3[i, n]))
-                
-                model.addConstr(t_arr_next_[i, n] == beta1[i, n] * t[j, k_tar[n]] + beta2[i, n] * r_act[i, n] + 
-                                beta3[i, n] * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
-                # model.addConstr(t_arr_next_[i, n] == beta2[i, n] * r_act[i, n] + 
-                                # beta3[i, n] * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
+                # beta = 0，表示放弃在给定窗口通过
+                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - M * beta[i, n])
+                model.addConstr(r_act[i, n] <= t[j, k_tar[n] + 1] + M * beta[i, n])
+                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta[i, n]))
+                model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta[i, n]))
+                model.addConstr(t_arr_next_[i, n] == beta[i, n] * r_act[i, n] + (1 - beta[i, n]) * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
                 model.addConstr(t_dev[i, n] >= t_arr_next_[i, n] - t_arr_next[n])
-    
+
+    # 期望到达时刻约束
+    model.addConstrs((r[n] <= t_arr_next[n] - L_dep[id]/v_max for n in range(N)), name="arrival_plan")
 
     # 求解
+    # model.update()
     model.optimize()
 
     # 检查求解结果
@@ -182,6 +168,7 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
             T_sol.append(Tk)
         for l in [0, 1]:
             T_sol[0][l][0:(j_curr[l] + 1)] -= tls_pad_T[-1][l][0:(j_curr[l] + 1)]
+        r_opt = [r[i].X for i in range(N)]
         J_tls = 0
         J_arr = 0
         for s in range(num_samples):
@@ -191,14 +178,16 @@ def local_SP(id, t_arr, r, t_arr_next, theta, busInd, **kwargs):
             for k in range(len(tls_pad_T) - 1, K + K_ini):
                 J_tls += y[j, k].x
         # print("Intersection:", id)
+        # print("Arrival time:", r_opt)
         # print("Tls plan:", T_sol)
+        # print("Objective value:", model.ObjVal)
         # print("Tls deviation:", J_tls)
         # print("Bus arrival deviation:", J_arr)
-        print("Local SP Solver runtime (seconds):", model.Runtime)
+        # print("Solver runtime (seconds):", model.Runtime)
 
         busArrPlan = []
         for n in range(N):
-            traj = np.array([[r[n], t_arr_next[n]], [POS[id], POS_stop[id + 1]]])
+            traj = np.array([[r_opt[n], t_arr_next[n]], [POS[id], POS_stop[id + 1]]])
             busArrPlan.append(traj)
 
     else:

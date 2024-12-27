@@ -191,12 +191,14 @@ def readPlan():
                 f.readline()
     return data_series
 
-def myplot(POS, POS_stop, phase, timetable):
+def myplot(testDir, POS, POS_stop, phase, timetable):
     PLAN_START = 10
     PLAN_STEP = 50
     # 读取文件
-    bus_speed_file = f'{rootPath}\\RouteTSP\\result\\bus_speed_profile.csv'
-    tls_state_file = f'{rootPath}\\RouteTSP\\result\\tlsState_profile.csv'
+    bus_speed_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\bus_speed_profile.csv'
+    tls_state_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\tlsState_profile.csv'
+    # bus_speed_file = f'{rootPath}\\RouteTSP\\result\\bus_speed_profile.csv'
+    # tls_state_file = f'{rootPath}\\RouteTSP\\result\\tlsState_profile.csv'
 
     # 读取公交速度数据和信号灯状态数据
     bus_speed_df = pd.read_csv(bus_speed_file)
@@ -262,7 +264,8 @@ def myplot(POS, POS_stop, phase, timetable):
 
     plt.tight_layout()
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
+    plt.savefig(f'{rootPath}\\RouteTSP\\result\\{testDir}\\P-t curve.png')
+    # plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
     plt.show()
 
 def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, T_board_past, DIRNAME, cnt, sample=None):
@@ -449,14 +452,21 @@ def local_SP_plot_(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, DIRNA
     # plt.savefig(f'{rootPath}\\RouteTSP\\result\\SP_compare\\{DIRNAME}\\{cnt}.png')
     # plt.show()
 
-def performanceAnalysis(busArrTimeList, TIMETABLE, tlsPlanList, bgPlan):
+def performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, bgPlan):
     INI = -10000
     def calBusArrTimeDev(busArrTime, TIMETABLE):
         mask = busArrTime != INI
-        arrStopNum = np.sum(mask)
-        busArrTime_mask = np.where(mask, busArrTime, 0)
-        timetable_mask = np.where(mask, TIMETABLE, 0)
-        return np.sum(np.abs(busArrTime_mask - timetable_mask)) / arrStopNum
+        # arrStopNum = np.sum(mask)
+        busArrTime_mask = np.where(mask, busArrTime, np.nan)
+        timetable_mask = np.where(mask, TIMETABLE, np.nan)
+        # return np.sum(np.abs(busArrTime_mask - timetable_mask)) / arrStopNum
+        busArrTimeDev = np.abs(busArrTime_mask - timetable_mask)
+        # 计算准点率
+        late_mask = busArrTimeDev > 30
+        late_count = np.sum(late_mask, axis=0)
+        total_valid_count = np.sum(~np.isnan(busArrTimeDev), axis=0)
+        late_rate = late_count / total_valid_count
+        return np.nanmean(busArrTimeDev, axis=0), np.nanstd(busArrTimeDev, axis=0), late_rate
     
     def calBusHeadwayDev(busArrTime):
         busArrTime = np.where(busArrTime == INI, np.nan, busArrTime)
@@ -471,62 +481,60 @@ def performanceAnalysis(busArrTimeList, TIMETABLE, tlsPlanList, bgPlan):
                 variances.append(np.nan)
         return variances
     
-    # def calTlsPlanDev(tlsPlan, bgPlan, padCycleNum):
-    #     cycleNum = tlsPlan.shape[0] - padCycleNum
-    #     dev = tlsPlan - np.broadcast_to(bgPlan, tlsPlan.shape)
-    #     return np.sum(np.abs(dev)) / cycleNum
-    
     def calTlsPlanDev(tlsPlan, bgPlan, padCycleNum):
         cycleNum = tlsPlan.shape[0] - padCycleNum
         dev = tlsPlan[padCycleNum:] - np.broadcast_to(bgPlan, tlsPlan[padCycleNum:].shape)
         return np.sum(np.abs(dev)) / cycleNum
     
-    # padCycleNumList = [4, 3, 2, 2, 1]
-    padCycleNumList = [0, 1, 1, 1, 1]
+    padCycleNumList = [4, 3, 2, 2, 1]
+    # padCycleNumList = [0, 1, 1, 1, 1]
     tlsDev = 0
-    busArrTimeDev = 0
-    busHeadwayVarSum = 0
     for i, tlsPlan in enumerate(tlsPlanList):
         tlsDev += calTlsPlanDev(tlsPlan, bgPlan[i, :], padCycleNumList[i])
-    for i, busArrTime in enumerate(busArrTimeList):
-        TIMETABLE = TIMETABLE[:busArrTime.shape[0], :]
-        busArrTimeDev += calBusArrTimeDev(busArrTime, TIMETABLE)
-        busHeadwayVar = calBusHeadwayDev(busArrTime)
-        busHeadwayVarSum += np.mean(busHeadwayVar[:-1])
 
-    print(f"Bus Arrive Time Deviation Avg (s): {busArrTimeDev/10}")
-    print(f"Bus Time Headway stdDev Avg (s): {busHeadwayVarSum/10}")
+    TIMETABLE = TIMETABLE[:busArrTime.shape[0], :]
+    busArrTimeDev, busArrTimeDevStd, lateRate = calBusArrTimeDev(busArrTime, TIMETABLE)
+    busHeadwayVar = calBusHeadwayDev(busArrTime)
+
+    print(f"Bus Arrive Time Deviation Avg (s): {busArrTimeDev}")
+    print(f"Bus Arrive Time Deviation stdDev (s): {busArrTimeDevStd}")
+    print(f"Bus Late Rate (%): {100*lateRate}")
+    print(f"Bus Time Headway stdDev Avg (s): {busHeadwayVar}")
         # print(f"Traffic Light Plan {i} Deviation Avg (s): {tlsDev}")
-    print(f"Traffic Light Plan Deviation Avg (s): {tlsDev/5}")
+    print(f"Traffic Light Plan Deviation Avg (s): {tlsDev/len(tlsPlanList)}")
     # print(busArrTime)
     # print(TIMETABLE)
     # print(tlsPlanList[0])
     # print(bgPlan[0, :])
 
+def cal_veh_delay(SIMTIME, testDir):
+    veh_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\veh_delay.csv'
+    veh_df = pd.read_csv(veh_file)
+    veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T
+    veh_df = veh_df[veh_df['depart'] < SIMTIME - 1]
+    veh_num = len(veh_df)
+    veh_arr = veh_df.iloc[:, 0]
+    veh_dep = veh_df.iloc[:, 1]
+    avg_delay = (veh_dep - veh_arr).mean()
+    print(f'Passed vehicle number for {testDir}: {veh_num}')
+    print(f'Average delay for {testDir}: {avg_delay}s')
+
     
 if __name__ == '__main__':
-    # J = np.array([[1, 2, 3, 4], [6, 5, 7, 8]])
-    # T_opt = np.array([[[19, 40, 16, 25], [44, 15, 19, 22]],
-    #                   [[44, 16, 29, 11], [11, 49, 22, 18]]])
-    # YR = 4
-    # RGYplan = getSumoTLSProgram(J, T_opt, YR)
-    # print(RGYplan)
-    # for k in range(len(RGYplan)):
-    #     for phase in RGYplan[k]:
-    #         # print(f'Junc{i}: {phase}')
-    #         print(f'Period {k}: {phase}')
-    # POS_JUNC = np.array(posJunc).cumsum()
-    # POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
-    # TIMETABLE = np.array([20 + i*120 + (POS_STOP - POS_STOP[0])/12 for i in range(100)])
-    # myplot(POS_JUNC, POS_STOP, 2, TIMETABLE)
-    # busArrTime = np.load(r'E:\workspace\python\BusRouteTSP\RouteTSP\result\busArrTime_{s}.npy')
-    busArrTimeList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\busArrTime\\busArrTime_{s}.npy') for s in range(10)]
+    # testDir = 'origin_0.7'
+    testDir = 'origin_0.7_5-25-10_nolb'
+    testDir = 'blank'
+    # testDir = 'SP_0.7_5-25-10_nolb'
+    SIMTIME = 3600
+
+    busArrTime = np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\{testDir}\\busArrTime.npy')
     BUS_DEP_HW = 2*60
     POS_JUNC = np.array(posJunc).cumsum()
     POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
     V_AVG = 10
-    STOP_DUR = 10*np.array([1, 1, 1, 1, 1, 1])
+    STOP_DUR = 20*np.array([1, 1, 1, 1, 1, 1])
     TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
     BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-    tlsPlanList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
-    performanceAnalysis(busArrTimeList, TIMETABLE, tlsPlanList, BG_PHASE_LEN)
+    tlsPlanList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
+    performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, BG_PHASE_LEN)
+    cal_veh_delay(SIMTIME, testDir)
