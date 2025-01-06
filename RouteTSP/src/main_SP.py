@@ -11,14 +11,15 @@ import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode, cal_veh_delay
+from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode
 from optimize_new import optimize
 from local_SP import local_SP
 
-testDir = 'SP_0.7_5-25-10_nolb'
-if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\{testDir}'):
-    os.makedirs(f'{rootPath}\\RouteTSP\\result\\{testDir}')
-# sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
+# testDir = 'SP_avg9_max12_Ts30_dev10_noQ_lowV'
+testDir = 'SP_test'
+if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
+    os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
+sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
 sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumocfg"]
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
@@ -28,11 +29,11 @@ SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
-PLAN_STEP = 50
+PLAN_STEP = 100
 BUS_DEP_INI = 800
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
-PLANNED_BUS_NUM = 6
+PLANNED_BUS_NUM = 5
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
@@ -61,14 +62,16 @@ L_APP = POS_JUNC - POS_STOP[:-1]
 L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
-V_MAX = 15
-Ts_means = 15
+V_MAX = 12
+V_MAX_ACT = 13
+Ts_means = 25
 Ts_devs = 10
 np.random.seed(0)
-Z = np.random.normal(0, 1, (100, 6))
-Z[0, 0] = 0
+# Z = np.random.normal(0, 1, (100, 6))
+Z = np.random.uniform(Ts_means-10, Ts_means+10, (100, 6))
+# Z[0, 0] = 0
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
+TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
 recordTimeList = np.arange(0, 3600, 5)
@@ -106,8 +109,9 @@ class Bus(Vehicle):
                 # 查询站点编号
                 stopId = traci.vehicle.getStops(self.id, 1)[0].stoppingPlaceID
                 # 设置停站时间
-                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 5*np.ones_like(Ts_means))
-                Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
+                # Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 15*np.ones_like(Ts_means))
+                # Ts = np.minimum(Ts, 35*np.ones_like(Ts_means))
+                Ts = Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)]
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
                 self.atBusStop = stopId
@@ -140,13 +144,13 @@ class Bus(Vehicle):
         elif self.avgTimeRef is not None:
             if self.nextUpdatePos in POS_JUNC:
                 # 过路口时留5s裕量
-                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 5 - timeStep, 1)
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - 5 - timeStep, 0.01)
             elif self.nextUpdatePos in POS_STOP:
-                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 1)
+                speedRef = (self.nextUpdatePos - self.pos[0])/max(self.avgTimeRef - timeStep, 0.01)
             else:
                 speedRef = V_MAX
             # traci.vehicle.setSpeed(self.id, max(min(speedRef, V_MAX), V_MIN))
-            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
+            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX_ACT))
 
 class BusStop:
     def __init__(self, stopId):
@@ -209,6 +213,8 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
+        if timeStep == 1400:
+            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for busId in busIdList:
@@ -251,7 +257,11 @@ class sumoEnv:
         minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
         maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
         maxPlanInd = np.where(TIMETABLE[:, 0] > timeStep + (PLANNED_CYCLE_NUM - 1)*BG_CYCLE_LEN)[0][0]
-        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
+        # runningBusNum = len(sumoEnv.runningBusListSorted)
+        # N = min(PLANNED_BUS_NUM + runningBusNum, 3)
+        N = PLANNED_BUS_NUM
+
+        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': N, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
                      'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
                      'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
                      'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX,
@@ -265,7 +275,7 @@ class sumoEnv:
         inputDict['t_arr_plan'] = TIMETABLE[minRunningInd:maxPlanInd, :] - timeStep
         inputDict['Q_ij'] = 0
         inputDict['T_board_past'] = np.array([bus.waitTime for bus in sumoEnv.runningBusListSorted
-                                     ] + [0 for _ in range(PLANNED_BUS_NUM - len(sumoEnv.runningBusListSorted))])
+                                     ] + [0 for _ in range(N - len(sumoEnv.runningBusListSorted))])
         tlsPadT = []
         tlsPadt = []
         jCurrList = []
@@ -300,8 +310,11 @@ class sumoEnv:
         sumoEnv.tlsPlan = []
         sumoEnv.busArrTimePlan = [plan[:, 0].reshape(-1, 1) for plan in busArrTimePlan]
         I = inputDict['I']
-        p_bus_0 = inputDict['p_bus_0'][:PLANNED_BUS_NUM]
-        for n in range(PLANNED_BUS_NUM):
+        # runningBusNum = len(sumoEnv.runningBusListSorted)
+        # N = min(runningBusNum + PLANNED_BUS_NUM, 3)
+        N = PLANNED_BUS_NUM
+        p_bus_0 = inputDict['p_bus_0'][:N]
+        for n in range(N):
             if (p_bus_0[n] > POS_JUNC[I - 1]) and (p_bus_0[n] < POS_STOP[I]):
                 sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], busArrTimePlan[n][:, -1].reshape(-1, 1), axis=1)
         for i in range(I):
@@ -337,10 +350,10 @@ class sumoEnv:
             bus.lowerControl(timeStep)
 
     def record(self):
-        csvBusStopFilePath = f'{rootPath}\\RouteTSP\\result\\{testDir}\\personNum_profile.csv'
-        csvTLSFilePath = f'{rootPath}\\RouteTSP\\result\\{testDir}\\tlsState_profile.csv'
-        csvBusSpeedFilePath = f'{rootPath}\\RouteTSP\\result\\{testDir}\\bus_speed_profile.csv'
-        csvVehDelayFilePath = f'{rootPath}\\RouteTSP\\result\\{testDir}\\veh_delay.csv'
+        csvBusStopFilePath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\personNum_profile.csv'
+        csvTLSFilePath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsState_profile.csv'
+        csvBusSpeedFilePath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\bus_speed_profile.csv'
+        csvVehDelayFilePath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay.csv'
         busSpeedProfileDict = {'Bus ' + vehId: veh.speedProfile for vehId, veh in sumoEnv.allBusDict.items()}
         pd.DataFrame(busSpeedProfileDict).to_csv(csvBusSpeedFilePath)
         personNumProfileDict = {'BusStop ' + stopId: stop.personNumProfile for stopId, stop in self.busStopDict.items()}
@@ -349,12 +362,11 @@ class sumoEnv:
         pd.DataFrame(tlsStateProfileDict).to_csv(csvTLSFilePath)
         busArrTimeMat = [[bus.arrTimeDict[stopId] for stopId in ['AtoB_0', 'AtoB_1', 'AtoB_2', 'AtoB_3', 'AtoB_4', 'AtoB_5']] 
                          for bus in sumoEnv.allBusDict.values()]
-        np.save(f'{rootPath}\\RouteTSP\\result\\{testDir}\\busArrTime.npy', np.array(busArrTimeMat))
+        np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTime.npy', np.array(busArrTimeMat))
         for id, tls in sumoEnv.trafficLightDict.items():
             tlsPlan = tls.tlsPlanPast
-            np.save(f'{rootPath}\\RouteTSP\\result\\{testDir}\\tlsPlan_{id}.npy', np.array(tlsPlan))
+            np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsPlan_{id}.npy', np.array(tlsPlan))
         pd.DataFrame(sumoEnv.allVehDict).to_csv(csvVehDelayFilePath)
-        cal_veh_delay(SIM_TIME, testDir)
 
 if __name__ == '__main__':
     traci.start(sumoCmd)

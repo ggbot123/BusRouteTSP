@@ -24,6 +24,7 @@ def optimize(**kwargs):
     FILENAME = f'{rootPath}\\RouteTSP\\result\\Rolling\\%d.png' % cnt
     M = 100000
     INI = -10000
+    v_ref = 13
 
     t_ini = []
     for i in range(I):
@@ -80,7 +81,8 @@ def optimize(**kwargs):
                 t[i, j, k] = model.addVar(name=f't{i}{j}{k}', lb=t_lb)
                 g[i, j, k] = model.addVar(name=f'g{i}{j}{k}')
                 y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=-10, ub=10)
-                # y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', lb=0, ub=10)
+                # y[i, j, k] = model.addVar(name=f'y{i}{j}{k}', ub=10)
+                # y[i, j, k] = model.addVar(name=f'y{i}{j}{k}')
 
                 # 初始解
                 t[i, j, k].start = t_opt[i][np.where(J[i] == j)][0] + k*C
@@ -140,14 +142,11 @@ def optimize(**kwargs):
                         # 目标函数辅助约束
                         model.addConstr(y[i, j, k] == T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
                         # model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
-                        # model.addConstr(y[i, j, k] >= -(T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR))
                         # model.addConstr(y[i, j, k] >= 0)
                         # model.addConstr(y[i, j, k] >= g[i, j, k] + YR - T_opt[i][np.where(J[i] == j)][0])
                         # 最小绿时约束
                         model.addConstr(g[i, j, k] >= G_min)
                         model.addConstr(g[i, j, k] >= V_ij[i, (j-1)]*C/(S_ij[i, (j-1)]*Xc))
-
-                    
 
     # 公交运行过程约束
     for n in range(N):
@@ -163,21 +162,21 @@ def optimize(**kwargs):
         # case 2：处于交叉口-下一站点之间
         elif nextIntInd == nextStopInd:
             model.addConstr(t_arr[n, nextStopInd] == T_dep[n, nextStopInd-1])
-            model.addConstr(T_dep[n, nextStopInd-1] >= (POS_stop[nextStopInd] - p_bus_0[n])/v_max)
+            model.addConstr(T_dep[n, nextStopInd-1] == (POS_stop[nextStopInd] - p_bus_0[n])/v_ref)
         # case 3: 处于上一站点-交叉口之间
         else:
             if T_board_past[n] == 0:
                 model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd])
             else:
                 model.addConstr(r[n, nextIntInd] == T_app[n, nextIntInd] + T_board[nextStopInd-1] - T_board_past[n])
-            model.addConstr(T_app[n, nextIntInd] >= (POS[nextIntInd] - p_bus_0[n])/v_max)
+            model.addConstr(T_app[n, nextIntInd] == (POS[nextIntInd] - p_bus_0[n])/v_ref)
 
         for i in range(nextIntInd, i_max[n]):
             # 公交行驶时间模型约束
             model.addConstr(sum(theta[i, j, k, n] for j in J_bus for k in range(K + K_ini)) == 1) # 采用theta表征公交到达交叉口时刻对应的信号周期
             for j in J_bus:
                 for k in range(K + K_ini):
-                    if k == (len(tls_pad_T[i]) - 1):
+                    if nextIntInd < nextStopInd and k == (len(tls_pad_T[i]) - 1):
                         epsilon = YR
                     else:
                         epsilon = 0
@@ -189,22 +188,22 @@ def optimize(**kwargs):
                     model.addConstr(d_[n, i] >= t[i, j, k] + Q_ij - r[n, i] - (1 - theta[i, j, k, n])*M)
                     model.addConstr(d_[n, i] <= t[i, j, k] + Q_ij - r[n, i] + (1 - theta[i, j, k, n])*M)
             # 辅助约束，保证延误非负
-            # model.addConstr(d_[n, i] <= (1 - beta[n, i])*M)
-            # model.addConstr(d_[n, i] >= -beta[n, i]*M)
-            # model.addConstr(d[n, i] >= d_[n, i] - beta[n, i]*M)
-            model.addConstr(d[n, i] >= d_[n, i])
-            model.addConstr(d[n, i] >= 0)
+            model.addConstr(d_[n, i] <= (1 - beta[n, i])*M)
+            model.addConstr(d_[n, i] >= -beta[n, i]*M)
+            model.addConstr(d[n, i] == (1 - beta[n, i])*d_[n, i])
+            # model.addConstr(d[n, i] >= d_[n, i])
+            # model.addConstr(d[n, i] >= 0)
             model.addConstr(r[n, i] + T_dep[n, i] + d[n, i] == t_arr[n, i + 1])
             # 公交车速约束
             if i == nextIntInd:
                 # case 3 这个约束前面已经加过了，这里不加
                 if p_bus_0[n] == INI or nextStopInd == 0 or nextIntInd == nextStopInd:
-                    model.addConstr(T_app[n, i] >= L_app[i]/v_max)
+                    model.addConstr(T_app[n, i] == L_app[i]/v_ref)
                     model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
             else:
-                model.addConstr(T_app[n, i] >= L_app[i]/v_max)
+                model.addConstr(T_app[n, i] == L_app[i]/v_ref)
                 model.addConstr(r[n, i] == t_arr[n, i] + T_app[n, i] + T_board[i])
-            model.addConstr(T_dep[n, i] >= L_dep[i]/v_max)
+            model.addConstr(T_dep[n, i] == L_dep[i]/v_ref)
             # 目标函数辅助约束(晚点时刻)
             # model.addConstr(t_dev[n, i] >= t_arr[n, i] - t_arr_plan[n, i])
             # model.addConstr(t_dev[n, i] >= 0)

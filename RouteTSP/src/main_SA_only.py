@@ -12,9 +12,9 @@ from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
 from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr
-from optimize_new import optimize
+from optimize_SA_only import optimize
 
-testDir = 'origin_test'
+testDir = 'SA_only'
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
 # sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -27,11 +27,11 @@ SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
-PLAN_STEP = 100
+PLAN_STEP = 50
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
-PLANNED_BUS_NUM = 5
+PLANNED_BUS_NUM = 6
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
@@ -60,20 +60,15 @@ L_APP = POS_JUNC - POS_STOP[:-1]
 L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
-V_MAX = 12
-V_MAX_ACT = 13
+V_MAX = 15
 # V_MIN = 10
-Ts_means = 25
-Ts_devs = 10
-np.random.seed(0)
-# Z = np.random.normal(0, 1, (100, 6))
-# Z[0, 0] = 0
-Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
-
+Ts_means = 15
+Ts_devs = 0
+np.random.seed(1)
+Z = np.random.normal(0, 1, (100, 6))
+Z[0, 0] = 0
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-# TIMETABLE = np.array([20 + BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
-#                       for i in range(100)])
-TIMETABLE = np.array([BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
+TIMETABLE = np.array([20 + BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
                       for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
@@ -112,9 +107,8 @@ class Bus(Vehicle):
                 # 查询站点编号
                 stopId = traci.vehicle.getStops(self.id, 1)[0].stoppingPlaceID
                 # 设置停站时间
-                # Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 15*np.ones_like(Ts_means))
-                # Ts = np.minimum(Ts, 35*np.ones_like(Ts_means))
-                Ts = Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)]
+                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 5*np.ones_like(Ts_means))
+                Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
                 self.atBusStop = stopId
@@ -153,7 +147,7 @@ class Bus(Vehicle):
             else:
                 speedRef = V_MAX
             # traci.vehicle.setSpeed(self.id, max(min(speedRef, V_MAX), V_MIN))
-            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX_ACT))
+            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
 
 class BusStop:
     def __init__(self, stopId):
@@ -216,8 +210,6 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
-        if timeStep >= 160:
-            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for busId in busIdList:
@@ -259,10 +251,8 @@ class sumoEnv:
         minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
         maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
         maxPlanInd = np.where(TIMETABLE[:, 0] > timeStep + (PLANNED_CYCLE_NUM - 1)*BG_CYCLE_LEN)[0][0]
-        # runningBusNum = len(sumoEnv.runningBusListSorted)
-        runningBusNum = 0
         
-        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM + runningBusNum, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
+        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
                      'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
                      'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
                      'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX,

@@ -1,4 +1,5 @@
 from optimize_new import optimize
+# from optimize_SA_only import optimize
 from local_SP import local_SP
 import pickle
 import os
@@ -7,7 +8,7 @@ from tools import getBusIndBeforeJunc, nextNode
 rootPath = r'E:\workspace\python\BusRouteTSP'
 
 # timeStepList = np.arange(150, 170, 5)
-timeStepList = [2710]
+timeStepList = [1310]
 for timeStep in timeStepList:
     with open(f"{rootPath}\\RouteTSP\\result\\inputData\\time={timeStep}.pkl", "rb") as f:
         inputDict = pickle.load(f)

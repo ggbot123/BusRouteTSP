@@ -195,10 +195,8 @@ def myplot(testDir, POS, POS_stop, phase, timetable):
     PLAN_START = 10
     PLAN_STEP = 50
     # 读取文件
-    bus_speed_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\bus_speed_profile.csv'
-    tls_state_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\tlsState_profile.csv'
-    # bus_speed_file = f'{rootPath}\\RouteTSP\\result\\bus_speed_profile.csv'
-    # tls_state_file = f'{rootPath}\\RouteTSP\\result\\tlsState_profile.csv'
+    bus_speed_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\bus_speed_profile.csv'
+    tls_state_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsState_profile.csv'
 
     # 读取公交速度数据和信号灯状态数据
     bus_speed_df = pd.read_csv(bus_speed_file)
@@ -264,8 +262,7 @@ def myplot(testDir, POS, POS_stop, phase, timetable):
 
     plt.tight_layout()
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    plt.savefig(f'{rootPath}\\RouteTSP\\result\\{testDir}\\P-t curve.png')
-    # plt.savefig(f'{rootPath}\\RouteTSP\\result\\P-t curve.png')
+    plt.savefig(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\P-t curve.png')
     plt.show()
 
 def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, timetable, T_board_past, DIRNAME, cnt, sample=None):
@@ -452,7 +449,7 @@ def local_SP_plot_(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, DIRNA
     # plt.savefig(f'{rootPath}\\RouteTSP\\result\\SP_compare\\{DIRNAME}\\{cnt}.png')
     # plt.show()
 
-def performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, bgPlan):
+def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIMTIME):
     INI = -10000
     def calBusArrTimeDev(busArrTime, TIMETABLE):
         mask = busArrTime != INI
@@ -479,12 +476,23 @@ def performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, bgPlan):
                 variances.append(var)
             else:
                 variances.append(np.nan)
-        return variances
+        return np.array(variances)
     
     def calTlsPlanDev(tlsPlan, bgPlan, padCycleNum):
         cycleNum = tlsPlan.shape[0] - padCycleNum
         dev = tlsPlan[padCycleNum:] - np.broadcast_to(bgPlan, tlsPlan[padCycleNum:].shape)
         return np.sum(np.abs(dev)) / cycleNum
+    
+    def cal_veh_delay(SIMTIME, testDir):
+        veh_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay.csv'
+        veh_df = pd.read_csv(veh_file)
+        veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T
+        veh_df = veh_df[veh_df['depart'] < SIMTIME - 1]
+        veh_num = len(veh_df)
+        veh_arr = veh_df.iloc[:, 0]
+        veh_dep = veh_df.iloc[:, 1]
+        avg_delay = (veh_dep - veh_arr).mean()
+        return veh_num, avg_delay
     
     padCycleNumList = [4, 3, 2, 2, 1]
     # padCycleNumList = [0, 1, 1, 1, 1]
@@ -495,46 +503,83 @@ def performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, bgPlan):
     TIMETABLE = TIMETABLE[:busArrTime.shape[0], :]
     busArrTimeDev, busArrTimeDevStd, lateRate = calBusArrTimeDev(busArrTime, TIMETABLE)
     busHeadwayVar = calBusHeadwayDev(busArrTime)
+    veh_num, avg_delay = cal_veh_delay(SIMTIME, testDir)
 
-    print(f"Bus Arrive Time Deviation Avg (s): {busArrTimeDev}")
-    print(f"Bus Arrive Time Deviation stdDev (s): {busArrTimeDevStd}")
-    print(f"Bus Late Rate (%): {100*lateRate}")
-    print(f"Bus Time Headway stdDev Avg (s): {busHeadwayVar}")
-        # print(f"Traffic Light Plan {i} Deviation Avg (s): {tlsDev}")
+    print(f"=========Performance Index for {testDir}=========")
+    print(f"Bus Arrive Time Deviation Avg (s): {busArrTimeDev}, {np.mean(busArrTimeDev[1:])}")
+    print(f"Bus Arrive Time Deviation stdDev (s): {busArrTimeDevStd}, {np.mean(busArrTimeDevStd[1:])}")
+    print(f"Bus Late Rate (%): {100*lateRate}, {np.mean(100*lateRate[1:])}")
+    print(f"Bus Time Headway stdDev Avg (s): {busHeadwayVar}, {np.mean(busHeadwayVar[1:])}")
+    # print(f"Traffic Light Plan {i} Deviation Avg (s): {tlsDev}")
     print(f"Traffic Light Plan Deviation Avg (s): {tlsDev/len(tlsPlanList)}")
+    print(f'Passed vehicle number: {veh_num}')
+    print(f'Average delay: {avg_delay}s')
     # print(busArrTime)
     # print(TIMETABLE)
     # print(tlsPlanList[0])
     # print(bgPlan[0, :])
+    print("=====================================================")
+    return busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, avg_delay
 
-def cal_veh_delay(SIMTIME, testDir):
-    veh_file = f'{rootPath}\\RouteTSP\\result\\{testDir}\\veh_delay.csv'
-    veh_df = pd.read_csv(veh_file)
-    veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T
-    veh_df = veh_df[veh_df['depart'] < SIMTIME - 1]
-    veh_num = len(veh_df)
-    veh_arr = veh_df.iloc[:, 0]
-    veh_dep = veh_df.iloc[:, 1]
-    avg_delay = (veh_dep - veh_arr).mean()
-    print(f'Passed vehicle number for {testDir}: {veh_num}')
-    print(f'Average delay for {testDir}: {avg_delay}s')
+def plot_result(saveDIR, testDirList, PI_name, yAxis_name, Algo_name):
+    data = []
+    delay_data = []
+    for testDir in testDirList:
+        busArrTimeDev = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDev.npy')
+        busArrTimeDevStd = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDevStd.npy')
+        lateRate = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\lateRate.npy')
+        busHeadwayVar = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busHeadwayVar.npy')
+        data.append(np.array([busArrTimeDev, busArrTimeDevStd, 100*lateRate, busHeadwayVar]))
+        delay = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\delay.npy')
+        delay_data.append(delay)
+    data = np.array(data)
+    delay_data = np.array(delay_data)
 
+    n = len(testDirList)
+    # 为每个数组绘制独立的柱状图
+    for i in range(4):
+        plt.figure(figsize=(10, 5))  # 创建一个新的图，figsize 控制图形大小
+
+        # 设置柱状图宽度和位置
+        width = 0.15  # 每个柱状图的宽度
+        x = np.arange(5)  # x 轴上的位置，长度为 6
+
+        # 绘制每组数据的柱状图
+        for j in range(n):
+            plt.bar(x + j * width, data[j, i, 1:], width=width, label=f"{Algo_name[j]}")
+
+        # 设置标题、X轴标签、Y轴标签
+        plt.title(f"{PI_name[i]}")
+        plt.xlabel("Bus Stop")
+        plt.ylabel(f"{yAxis_name[i]}")
+        plt.xticks(x + (n-1) * width / 2, [f"{i+1}" for i in range(5)])
+
+        # 添加图例
+        plt.legend()
+
+        # 显示图表
+        plt.tight_layout()
+        plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\{PI_name[i]}.png')
+        plt.show()
     
-if __name__ == '__main__':
-    # testDir = 'origin_0.7'
-    testDir = 'origin_0.7_5-25-10_nolb'
-    testDir = 'blank'
-    # testDir = 'SP_0.7_5-25-10_nolb'
-    SIMTIME = 3600
+    # delay
+    plt.figure(figsize=(8, 5))
+    # 设置柱状图位置
+    x = np.arange(n)
 
-    busArrTime = np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\{testDir}\\busArrTime.npy')
-    BUS_DEP_HW = 2*60
-    POS_JUNC = np.array(posJunc).cumsum()
-    POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
-    V_AVG = 10
-    STOP_DUR = 20*np.array([1, 1, 1, 1, 1, 1])
-    TIMETABLE = np.array([20 + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
-    BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-    tlsPlanList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
-    performanceAnalysis(busArrTime, TIMETABLE, tlsPlanList, BG_PHASE_LEN)
-    cal_veh_delay(SIMTIME, testDir)
+    # 绘制柱状图
+    plt.bar(x, delay_data, width=0.6, color='skyblue', edgecolor='black')
+
+    # 设置标题和标签
+    plt.title("Vehicle Passing Time")
+    plt.xlabel("Algorithm")
+    plt.ylabel("Time (s)")
+    plt.xticks(x, [f"{Algo_name[i]}" for i in range(n)])
+
+    plt.ylim(180, 220)
+
+    # 显示图表
+    plt.tight_layout()
+    plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\delay.png')
+    plt.show()
+    

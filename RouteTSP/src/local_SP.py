@@ -3,9 +3,6 @@ import gurobipy as gb
 import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
-from ScenarioGenerator.busStopGen import posSet
-from ScenarioGenerator.nodeGen import posJunc
-from scipy.stats import truncnorm
 from tools import round_and_adjust, local_SP_plot
 
 def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
@@ -40,10 +37,12 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
     np.random.seed(0)
     Ts_means = T_board[id]
     Ts_devs = 10
-    Z = np.random.normal(0, 1, (num_samples, I + 1))
+    # Z = np.random.normal(0, 1, (num_samples, I + 1))
+    Z = np.random.uniform(Ts_means-10, Ts_means+10, (num_samples, I + 1))
+    Ts = Z
     # Ts = np.maximum(Ts_means + Z * Ts_devs, 0*np.ones_like(Ts_means))
-    Ts = np.maximum(Ts_means + Z * Ts_devs, 10*np.ones_like(Ts_means))
-    Ts = np.minimum(Ts, 30*np.ones_like(Ts_means))
+    # Ts = np.maximum(Ts_means + Z * Ts_devs, 20*np.ones_like(Ts_means))
+    # Ts = np.minimum(Ts, 40*np.ones_like(Ts_means))
 
     # 创建Gurobi模型
     model = gb.Model("Local_SP")
@@ -86,6 +85,7 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
             objective_expr += wb * (t_dev[s, n])/num_samples
     
     model.setObjective(objective_expr, gb.GRB.MINIMIZE)
+
 
     # 信号灯结构约束
     for l in [0, 1]:
@@ -131,30 +131,41 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
     # 设置分段线性函数约束，使用 PWLConstr 表示每个样本的分段函数
     for i in range(num_samples):
         for n in range(N):
-            if p_bus_0[n] < POS_stop[id]:
+            if p_bus_0[n] < POS_stop[id] + 0.001:
+                if np.abs(p_bus_0[n] - POS_stop[id]) < 0.001:
+                    T_board_left = np.max([Ts[i, id] - T_board_past[busInd][n], 0])
+                else:
+                    T_board_left = Ts[i, id]
                 # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, id] + L_app[id]/v_max)
-                model.addGenConstrPWL(r[n], r_act[i, n], 
-                                    [t_arr[n], (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1],
-                                    [(t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max), (t_arr[n] + Ts[i, id] + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                if (id > 0) and (p_bus_0[n] > POS[id - 1]):
+                    t_arr_act = max(t_arr[n], (POS_stop[id] - p_bus_0[n])/v_max)
+                    model.addGenConstrPWL(r[n], r_act[i, n], 
+                                        [t_arr_act, (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1],
+                                        [(t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                else:
+                    model.addGenConstrPWL(r[n], r_act[i, n], 
+                                        [t_arr[n], (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1],
+                                        [(t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                
             elif p_bus_0[n] < POS[id]:
-                T_board_left = 0 if T_board_past[n] == 0 else np.max([Ts[i, id] - T_board_past[n], 0])
                 # model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_max)
                 model.addGenConstrPWL(r[n], r_act[i, n], 
-                                     [0, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1],
-                                     [T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max, T_board_left + (L_app[id] - (p_bus_0[n] - POS_stop[id]))/v_max + 1], name=f"pwl_{i}_{n}")
+                                     [0, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1],
+                                     [(POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1], name=f"pwl_{i}_{n}")
             else: 
                 continue
             for j in J_bus:
                 # beta = 0，表示放弃在给定窗口通过
                 model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - M * beta[i, n])
                 model.addConstr(r_act[i, n] <= t[j, k_tar[n] + 1] + M * beta[i, n])
-                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta[i, n]))
+                # model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta[i, n]))
                 model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta[i, n]))
                 model.addConstr(t_arr_next_[i, n] == beta[i, n] * r_act[i, n] + (1 - beta[i, n]) * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
                 model.addConstr(t_dev[i, n] >= t_arr_next_[i, n] - t_arr_next[n])
 
     # 期望到达时刻约束
-    model.addConstrs((r[n] <= t_arr_next[n] - L_dep[id]/v_max for n in range(N)), name="arrival_plan")
+    model.addConstrs((r[n] <= t_arr_next[n] + 10 - L_dep[id]/v_max for n in range(N)), name="arrival_plan_max")
+    model.addConstrs((r[n] >= t[j, k_tar[n]] for n in range(N) for j in J_bus), name="arrival_plan_min")
 
     # 求解
     # model.update()
@@ -162,6 +173,7 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
 
     # 检查求解结果
     if model.status == gb.GRB.OPTIMAL:
+        model.write(f'{rootPath}\\RouteTSP\\log\\local_SP.lp')
         T_sol = []
         for k in range((len(tls_pad_T) - 1), (K + K_ini)):
             Tk = round_and_adjust(np.array([g[j, k].x + YR for j in np.concatenate((J[id][0], J[id][1]))]).reshape(J[id].shape))
@@ -183,7 +195,7 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
         # print("Objective value:", model.ObjVal)
         # print("Tls deviation:", J_tls)
         # print("Bus arrival deviation:", J_arr)
-        # print("Solver runtime (seconds):", model.Runtime)
+        print("Solver runtime (seconds):", model.Runtime)
 
         busArrPlan = []
         for n in range(N):
