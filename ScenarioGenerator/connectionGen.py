@@ -5,9 +5,12 @@ def get_con_str(con, from_node, cur_node, to_node_straight, to_node_left, to_nod
     to_edge_right = '%s_%s' % (cur_node, to_node_right)
     # return con % (from_edge, to_edge_left, 1, 1) + con % (from_edge, to_edge_straight, 0, 0) + con % (from_edge, to_edge_right, 0, 0)
     if type == 'mainStreet':
-        return con % (from_edge, to_edge_left, 3, 2) + con % (from_edge, to_edge_straight, 2, 2) + con % (from_edge, to_edge_straight, 1, 1) + con % (from_edge, to_edge_right, 0, 0)
+        # return con % (from_edge, to_edge_left, 3, 2) + con % (from_edge, to_edge_straight, 2, 2) + con % (from_edge, to_edge_straight, 1, 1) + con % (from_edge, to_edge_right, 0, 0)
+        return con % (from_edge, to_edge_left, 3, 2, 'passenger') + con % (from_edge, to_edge_straight, 2, 2, 'passenger') + con % (from_edge, to_edge_straight, 1, 1, 'passenger') + con % (from_edge, to_edge_straight, 0, 0, 'bus')
     else:
-        return con % (from_edge, to_edge_left, 2, 3) + con % (from_edge, to_edge_straight, 1, 1) + con % (from_edge, to_edge_right, 0, 0)
+        # return con % (from_edge, to_edge_left, 2, 3) + con % (from_edge, to_edge_straight, 1, 1) + con % (from_edge, to_edge_right, 0, 0)
+        return con % (from_edge, to_edge_left, 2, 3, 'passenger') + con % (from_edge, to_edge_straight, 1, 1, 'passenger') + con % (from_edge, to_edge_right, 0, 0, 'passenger')
+
 
 #定义连接器connection
 def output_connections(con):

@@ -2,6 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import os
+import shutil
 import traci
 import pandas as pd
 import numpy as np
@@ -388,3 +389,7 @@ if __name__ == '__main__':
     print("Ploting...\n")
     myplot(testDir, POS_JUNC, POS_STOP, BUS_PHASE[0], TIMETABLE)
     traci.close()
+
+    xmlE2FileSrcPath = f'{rootPath}\\ScenarioGenerator\\Scenario\\output_E2.xml'
+    xmlE2FileDstPath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\output_E2_3500.xml'
+    shutil.copy(xmlE2FileSrcPath, xmlE2FileDstPath)

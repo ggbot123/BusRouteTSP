@@ -49,9 +49,9 @@ red_time = 1 - green_split[:, [1, 5]].T
 queue_clearance_time = 0.1* np.array([[1, 1, 1, 1, 1],
                                       [1, 1, 1, 1, 1]])
 two_way_vol_ratio = 1
-cycle_range = [1/100, 1/150]
-speed_range = 13 * np.ones((2, num_signals - 1, 2))
-speed_range[:, :, 1] = 17
+cycle_range = [1/100, 1/100]
+speed_range = 10 * np.ones((2, num_signals - 1, 2))
+speed_range[:, :, 1] = 14
 speed_change_range = -30 * np.ones((2, num_signals - 2, 2))
 speed_change_range[:, :, 1] = 30
 distance = np.array([posJunc[1:], posJunc[1:]])

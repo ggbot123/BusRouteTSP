@@ -24,7 +24,7 @@ def output_tls(tls, phase):
         allPhases = pickle.load(file)
     offset = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
     # print(allPhases)
-    # print(offset)
+    print(offset)
 
     for i in range(len(allPhases)):
         str_adds += tls % ('nt' + str(1 + i), str(offset[i]))

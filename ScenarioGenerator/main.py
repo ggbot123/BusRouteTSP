@@ -30,7 +30,7 @@ def generate_net():
     write_file('./Scenario/exp.edg.xml', edgeGen.output_edges(edge))
 
     # con.xml file
-    con = '  <connection from="%s" to="%s" fromLane="%d" toLane="%d"/>\n'
+    con = '  <connection from="%s" to="%s" fromLane="%d" toLane="%d" allow="%s"/>\n'
     write_file('./Scenario/exp.con.xml', connectionGen.output_connections(con))
 
     # tll.xml file
@@ -49,7 +49,8 @@ def generate_route():
     # flow = '  <flow id="f_%s" from="%s" to="%s" begin="%d" end="%d" vehsPerHour="%f" type="type1"/>\n'
     flow = '  <flow id="f_%s" from="%s" to="%s" begin="%d" end="%d" departLane="%s" probability="%.3f" type="type1"/>\n'
     write_file('./Scenario/exp.raw.rou.xml', flowGen.output_flows(flow))
-    os.system('duarouter -n ./Scenario/exp.net.xml -t ./Scenario/exp.raw.rou.xml -o ./Scenario/exp.rou.xml')
+    os.system('duarouter -n ./Scenario/exp.net.xml -t ./Scenario/exp.raw.rou.xml -o ./Scenario/exp.rou.xml --seed 2')
+    # os.system('duarouter -n ./Scenario/exp.net.xml -t ./Scenario/exp.raw.rou.xml -o ./Scenario/exp.rou.xml')
 
 def generate_add():
     # add.xml file

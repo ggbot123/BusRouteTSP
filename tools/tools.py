@@ -48,7 +48,8 @@ def getSumoTLSProgram(J, T, YR):
     # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 
     # 14 links (3/4 lanes)
-    phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
+    # phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
+    phaseDict = {1: [7], 2: [11, 12, 13], 3: [10], 4: [2], 5: [14], 6: [4, 5, 6], 7: [3], 8: [9]}
     # phaseDict = {1: [12], 2: [11], 3: [9], 4: [8], 5: [6], 6: [5], 7: [3], 8: [2]}
 
     for k in range(K):
@@ -59,7 +60,8 @@ def getSumoTLSProgram(J, T, YR):
         for j, t in enumerate(tSplit):
             phaseDur = Tsplit[j] if j < len(Tsplit) else YR
             # RGY = 'GrrGrrGrrGrr'
-            RGY = 'GrrGrrrGrrGrrr'
+            # RGY = 'GrrGrrrGrrGrrr'
+            RGY = 'GrrrrrrGrrrrrr'
             for b in [0, 1]:
                 tInd = np.searchsorted(tk[b], t, side='right')
                 # currentPhase = phaseDict[J[b][int((tInd - 1)/2)]] - 1

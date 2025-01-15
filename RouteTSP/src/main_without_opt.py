@@ -2,6 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import os
+import shutil
 import traci
 import pandas as pd
 import numpy as np
@@ -17,7 +18,7 @@ from optimize_new import optimize
 testDir = 'blank_test'
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
-# sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
+sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
 sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumocfg"]
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
@@ -208,6 +209,8 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
+        if timeStep == 62:
+            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for busId in busIdList:
@@ -238,9 +241,12 @@ class sumoEnv:
             sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)
         for vehId in vehIdList:
             if vehId not in sumoEnv.runningVehDict:
-                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None}})
+                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None, 'route': traci.vehicle.getRoute(vehId)}})
             else:
+                if vehId == 'f_0_0.0' and traci.vehicle.getPosition(vehId)[0] > 298:
+                    pass
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
+                # sumoEnv.runningVehDict[vehId]['departPos'] = traci.vehicle.getPosition(vehId)
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 
     def genInput(self, timeStep):
@@ -349,3 +355,7 @@ if __name__ == '__main__':
     print("Ploting...\n")
     myplot(testDir, POS_JUNC, POS_STOP, BUS_PHASE[0], TIMETABLE)
     traci.close()
+
+    xmlE2FileSrcPath = f'{rootPath}\\ScenarioGenerator\\Scenario\\output_E2.xml'
+    xmlE2FileDstPath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\output_E2_3500.xml'
+    shutil.copy(xmlE2FileSrcPath, xmlE2FileDstPath)

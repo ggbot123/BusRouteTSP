@@ -2,6 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import numpy as np
+import pickle
 from ScenarioGenerator.nodeGen import posJunc
 from ScenarioGenerator.busStopGen import posSet
 from tools import performanceAnalysis
@@ -36,10 +37,16 @@ if __name__ == '__main__':
         TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
         BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
         tlsPlanList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\case study\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
-        busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, delay = performanceAnalysis(
+        busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, delay, PI_dict_int, PI_dict_move, data_dict = performanceAnalysis(
             testDir, busArrTime, TIMETABLE, tlsPlanList, BG_PHASE_LEN, SIMTIME)
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDev.npy', np.array(busArrTimeDev))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDevStd.npy', np.array(busArrTimeDevStd))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\lateRate.npy', np.array(lateRate))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busHeadwayVar.npy', np.array(busHeadwayVar))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\delay.npy', np.array(delay))
+        with open(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\PI_dict_int_3500.pkl', 'wb') as file:
+            pickle.dump(PI_dict_int, file)
+        with open(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\PI_dict_move_3500.pkl', 'wb') as file:
+            pickle.dump(PI_dict_move, file)
+        with open(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\data_dict_3500.pkl', 'wb') as file:
+            pickle.dump(data_dict, file)

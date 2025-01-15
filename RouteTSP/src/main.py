@@ -2,6 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import os
+import shutil
 import traci
 import pandas as pd
 import numpy as np
@@ -27,7 +28,7 @@ SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
-PLAN_STEP = 100
+PLAN_STEP = 50
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
@@ -64,7 +65,7 @@ V_MAX = 12
 V_MAX_ACT = 13
 # V_MIN = 10
 Ts_means = 25
-Ts_devs = 10
+Ts_devs = 0
 np.random.seed(0)
 # Z = np.random.normal(0, 1, (100, 6))
 # Z[0, 0] = 0
@@ -363,3 +364,7 @@ if __name__ == '__main__':
     print("Ploting...\n")
     myplot(testDir, POS_JUNC, POS_STOP, BUS_PHASE[0], TIMETABLE)
     traci.close()
+
+    xmlE2FileSrcPath = f'{rootPath}\\ScenarioGenerator\\Scenario\\output_E2.xml'
+    xmlE2FileDstPath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\output_E2_3500.xml'
+    shutil.copy(xmlE2FileSrcPath, xmlE2FileDstPath)

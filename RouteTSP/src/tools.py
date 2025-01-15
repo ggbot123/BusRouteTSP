@@ -9,6 +9,9 @@ from ScenarioGenerator.nodeGen import posJunc
 from ScenarioGenerator.busStopGen import posSet
 from tqdm import tqdm
 from bisect import bisect_left
+import xml.etree.ElementTree as ET
+import pickle
+import re
 
 # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
@@ -72,7 +75,8 @@ def getSumoTLSProgram(J, T, YR):
     RGYplan = [[] for _ in range(K)]
 
    # 14 links (3/4 lanes)
-    phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
+    # phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
+    phaseDict = {1: [7], 2: [11, 12, 13], 3: [10], 4: [2], 5: [14], 6: [4, 5, 6], 7: [3], 8: [9]}
 
     for k in range(K):
         tk = tPlan[k]
@@ -80,7 +84,8 @@ def getSumoTLSProgram(J, T, YR):
         Tsplit = np.diff(tSplit)
         for j, t in enumerate(tSplit):
             phaseDur = Tsplit[j] if j < len(Tsplit) else YR
-            RGY = 'GrrGrrrGrrGrrr'
+            # RGY = 'GrrGrrrGrrGrrr'
+            RGY = 'GrrrrrrGrrrrrr'
             for b in [0, 1]:
                 tInd = np.searchsorted(tk[b], t, side='right')
                 currentPhaseList = phaseDict[J[b][int((tInd - 1)/2)]]
@@ -138,58 +143,6 @@ def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):
             np.savetxt(f, plan, fmt='%.1f', delimiter=', ')
             f.write("\n---\n")  # 用---分隔每一组数据
     print(f"Data series saved to {file_path}")
-
-def readPlan():
-    # 定义要读取的文件路径
-    file_path = f"{rootPath}\\optimizer_output.txt"
-
-    # 读取txt文件中的一系列数据
-    data_series = []
-    with open(file_path, 'r') as f:
-        while True:
-            line = f.readline().strip()
-            if not line:  # 文件结束
-                break
-            
-            if line.startswith("Record"):
-                # 读取timeStep
-                timeStep_line = f.readline().strip()
-                timeStep = int(timeStep_line.split(": ")[1])
-                
-                # 跳过空行和tlsPlan标识行
-                f.readline()  # 空行
-                f.readline()  # "tlsPlan:"
-                
-                # 读取tlsPlan
-                tlsPlan_data = []
-                for _ in range(5 * 2):  # 5*2=10行数据
-                    line = f.readline().strip()
-                    row_data = [float(x) for x in line.split(", ")]
-                    tlsPlan_data.append(row_data)
-                tlsPlan = np.array(tlsPlan_data).reshape(5, 2, 4)
-                
-                # 跳过空行和busArrTimePlan标识行
-                f.readline()  # 空行
-                f.readline()  # "busArrTimePlan:"
-                
-                # 读取busArrTimePlan
-                busArrTimePlan_data = []
-                for _ in range(6 * 2):  # 6*2=12行数据
-                    line = f.readline().strip()
-                    row_data = [float(x) for x in line.split(", ")]
-                    busArrTimePlan_data.append(row_data)
-                busArrTimePlan = np.array(busArrTimePlan_data).reshape(6, 2, 10)
-                
-                # 保存当前组数据
-                data_series.append({
-                    "timeStep": timeStep,
-                    "tlsPlan": tlsPlan,
-                    "busArrTimePlan": busArrTimePlan
-                })
-                
-                # 跳过分隔符 ---
-                f.readline()
-    return data_series
 
 def myplot(testDir, POS, POS_stop, phase, timetable):
     PLAN_START = 10
@@ -369,86 +322,6 @@ def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_M
     # plt.show()
     return fail_cnt
 
-def local_SP_plot_(tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_MAX, DIRNAME, cnt, sample=None):
-    POS_JUNC = np.array(posJunc).cumsum()
-    POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
-    YR = 4
-    N = len(busArrPlan)
-    # I = len(tlsPlan)
-    I = 1
-    num_sample = 10
-    busLoop = busPhasePos[0]
-    busPhase = busPhasePos[1]
-    TPlan = tlsPlan[:, busLoop, :].flatten()
-    tPlan = np.insert(TPlan, 0, 0).cumsum()
-    sample_cnt = 0
-
-    # 绘制信号配时
-    fig, ax1 = plt.subplots(figsize=(10, 8))
-    lines = []
-    colors = []
-    for i in range(I):
-        for j, phaseLen in enumerate(TPlan):
-            if j % 4 != busPhase:
-                lines.append([(tPlan[j], POS_JUNC[i]), (tPlan[j] + phaseLen, POS_JUNC[i])])
-                colors.append('red')
-            else:
-                lines.append([(tPlan[j], POS_JUNC[i]), (tPlan[j] + phaseLen - YR, POS_JUNC[i])])
-                colors.append('green')
-                lines.append([(tPlan[j] + phaseLen - YR, POS_JUNC[i]), (tPlan[j] + phaseLen, POS_JUNC[i])])
-                colors.append('yellow')
-    # 使用 LineCollection 绘制信号灯状态
-    lc = LineCollection(lines, colors=colors, linewidths=2)
-    ax1.add_collection(lc)
-    ax1.set_xlabel('time(s)')
-    ax1.set_ylabel('distance(m)')
-    ax1.set_title('Traffic Signal Timing Plan')
-
-    for n in range(N):
-        for _ in range(num_sample):
-            pos = busArrPlan[n][1, 0]
-            t = busArrPlan[n][0, 0]
-            traj_t, traj_x = [t], [pos]
-            for t_arr in busArrPlan[n][:, 1:].T:
-                t_arr_plan = t_arr[0]
-                nextPOS = t_arr[1]
-                # 驶向路口/站点
-                if (nextPOS - pos)/(t_arr_plan - t) <= V_MAX and (nextPOS - pos)/(t_arr_plan - t) >= 0:
-                    t_arr_act = t_arr_plan
-                else:
-                    t_arr_act = t + (nextPOS - pos)/V_MAX
-                traj_t.append(t_arr_act)
-                traj_x.append(nextPOS)
-
-                if nextPOS in POS_STOP:
-                    # 停站
-                    if sample is None:
-                        Ts = np.random.normal(0, 1)*PER_BOARD_DUR
-                    else:
-                        Ts = sample[sample_cnt]
-                        sample_cnt += 1
-                    t_arr_act += Ts
-                    traj_t.append(t_arr_act)
-                    traj_x.append(nextPOS)
-                else:
-                    # 路口等待
-                    ind = np.searchsorted(tPlan[1:] - YR, t_arr_act)
-                    arrPhase = ind % 4
-                    arrCycle = int(ind / 4)
-                    if arrPhase < busPhase:
-                        t_arr_act = tPlan[4*arrCycle + busPhase]
-                    elif arrPhase > busPhase:
-                        t_arr_act = tPlan[4*(arrCycle + 1) + busPhase]
-                    traj_t.append(t_arr_act)
-                    traj_x.append(nextPOS)
-
-                t = t_arr_act
-                pos = nextPOS
-            ax1.plot(traj_t, traj_x, color='b')
-
-    # plt.savefig(f'{rootPath}\\RouteTSP\\result\\SP_compare\\{DIRNAME}\\{cnt}.png')
-    # plt.show()
-
 def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIMTIME):
     INI = -10000
     def calBusArrTimeDev(busArrTime, TIMETABLE):
@@ -486,13 +359,84 @@ def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIM
     def cal_veh_delay(SIMTIME, testDir):
         veh_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay.csv'
         veh_df = pd.read_csv(veh_file)
-        veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T
+        veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T.dropna()
+        veh_df['arrive'] = pd.to_numeric(veh_df['arrive'], errors='coerce')  # 将无法转换的值变为 NaN
+        veh_df['depart'] = pd.to_numeric(veh_df['depart'], errors='coerce')  # 将无法转换的值变为 NaN
         veh_df = veh_df[veh_df['depart'] < SIMTIME - 1]
         veh_num = len(veh_df)
         veh_arr = veh_df.iloc[:, 0]
         veh_dep = veh_df.iloc[:, 1]
         avg_delay = (veh_dep - veh_arr).mean()
         return veh_num, avg_delay
+    
+    def cal_traffic_impact(testDir):
+        # 解析XML文件
+        xmlfile = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\output_E2_3500.xml'
+        tree = ET.parse(xmlfile)
+        root = tree.getroot()
+        data_dict = {}
+
+        # 遍历所有interval节点
+        for interval in root.findall('interval'):
+            # 获取id
+            interval_id = interval.get('id')
+            # 提取所需的指标
+            mean_time_loss = interval.get('meanTimeLoss')
+            n_veh_seen = interval.get('nVehSeen')
+            max_jam_length_in_vehicles = interval.get('maxJamLengthInVehicles')
+            started_halts = interval.get('startedHalts')
+            # 将提取的指标添加到字典中
+            metrics = {
+                'meanTimeLoss': float(mean_time_loss),
+                'nVehSeen': int(n_veh_seen),
+                'maxJamLengthInVehicles': int(max_jam_length_in_vehicles),
+                'startedHalts': float(started_halts)
+            }
+            if interval_id not in data_dict:
+                data_dict[interval_id] = []
+            data_dict[interval_id].append(metrics)
+
+        PI_dict_move = {}
+        PI_dict_int = {}
+        for id, metricsSeries in data_dict.items():
+            veh_sum = np.sum([metrics['nVehSeen'] for metrics in metricsSeries])
+            avg_delay = np.sum([metrics['meanTimeLoss']*metrics['nVehSeen'] for metrics in metricsSeries])/veh_sum
+            avg_max_queue_length = np.mean([metrics['maxJamLengthInVehicles'] for metrics in metricsSeries])
+            max_max_queue_length = np.max([metrics['maxJamLengthInVehicles'] for metrics in metricsSeries])
+            all_halts = np.sum([metrics['startedHalts'] for metrics in metricsSeries])
+            PI_dict_move[id] = {
+                'vehSum': veh_sum,
+                'avgDelay': avg_delay,
+                'avgMaxQueueLength': avg_max_queue_length,
+                'maxQueueLength': max_max_queue_length,
+                'halts': all_halts
+            }
+            intId = id.split('_')[1]
+            if intId not in PI_dict_int:
+                PI_dict_int[intId] = {}
+            PI_dict_int[intId][id] = PI_dict_move[id]
+        
+        for intId, metricsSeries in PI_dict_int.items():
+            veh_sum = np.sum([metrics['vehSum'] for metrics in metricsSeries.values()])
+            avg_delay = np.sum([metrics['avgDelay']*metrics['vehSum'] for metrics in metricsSeries.values()])/veh_sum
+            avg_max_queue_length = np.mean([metrics['avgMaxQueueLength'] for metrics in metricsSeries.values()])
+            max_max_queue_length = np.max([metrics['maxQueueLength'] for metrics in metricsSeries.values()])
+            all_halts = np.sum([metrics['halts'] for metrics in metricsSeries.values()])
+            PI_dict_int[intId] = {
+                'vehSum': veh_sum,
+                'avgDelay': avg_delay,
+                'avgMaxQueueLength': avg_max_queue_length,
+                'maxQueueLength': max_max_queue_length,
+                'halts': all_halts
+            }
+        
+        veh_sum_total = np.sum([metrics['vehSum'] for metrics in PI_dict_int.values()])
+        avg_delay_total = np.sum([metrics['avgDelay']*metrics['vehSum'] for metrics in PI_dict_int.values()])/veh_sum_total
+        avg_max_queue_length_total = np.mean([metrics['avgMaxQueueLength'] for metrics in PI_dict_int.values()])
+        max_max_queue_length_total = np.max([metrics['maxQueueLength'] for metrics in PI_dict_int.values()])
+        avg_halts_total = np.sum(metrics['halts'] for metrics in PI_dict_int.values())/veh_sum_total
+
+        return PI_dict_int, PI_dict_move, data_dict, veh_sum_total, avg_delay_total, avg_max_queue_length_total, max_max_queue_length_total, avg_halts_total
     
     padCycleNumList = [4, 3, 2, 2, 1]
     # padCycleNumList = [0, 1, 1, 1, 1]
@@ -504,6 +448,7 @@ def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIM
     busArrTimeDev, busArrTimeDevStd, lateRate = calBusArrTimeDev(busArrTime, TIMETABLE)
     busHeadwayVar = calBusHeadwayDev(busArrTime)
     veh_num, avg_delay = cal_veh_delay(SIMTIME, testDir)
+    PI_dict_int, PI_dict_move, data_dict, veh_sum_total, avg_delay_total, avg_max_queue_length_total, max_max_queue_length_total, avg_halts_total = cal_traffic_impact(testDir)
 
     print(f"=========Performance Index for {testDir}=========")
     print(f"Bus Arrive Time Deviation Avg (s): {busArrTimeDev}, {np.mean(busArrTimeDev[1:])}")
@@ -513,13 +458,18 @@ def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIM
     # print(f"Traffic Light Plan {i} Deviation Avg (s): {tlsDev}")
     print(f"Traffic Light Plan Deviation Avg (s): {tlsDev/len(tlsPlanList)}")
     print(f'Passed vehicle number: {veh_num}')
-    print(f'Average delay: {avg_delay}s')
+    print(f'Average Passing Time: {avg_delay}s')
+    print(f'Vehicle Sum: {veh_sum_total}')
+    print(f'Average Vehicle Delay: {avg_delay_total}s')
+    print(f'Average Max Queue Length: {avg_max_queue_length_total}')
+    print(f'Total Max Queue Length: {max_max_queue_length_total}')
+    print(f'Average Vehicle Stops: {avg_halts_total}')
     # print(busArrTime)
     # print(TIMETABLE)
     # print(tlsPlanList[0])
     # print(bgPlan[0, :])
     print("=====================================================")
-    return busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, avg_delay
+    return busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, avg_delay, PI_dict_int, PI_dict_move, data_dict
 
 def plot_result(saveDIR, testDirList, PI_name, yAxis_name, Algo_name):
     data = []
@@ -582,4 +532,60 @@ def plot_result(saveDIR, testDirList, PI_name, yAxis_name, Algo_name):
     plt.tight_layout()
     plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\delay.png')
     plt.show()
-    
+
+def plot_result_for_each_intersection(saveDIR, testDirList):
+    data = []
+    for testDir in testDirList:
+        with open(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\PI_dict_int_3500.pkl', "rb") as f:
+            PI_dict = pickle.load(f)
+        node_order = ['nt1', 'nt2', 'nt3', 'nt4', 'nt5']
+        data.append(pd.DataFrame(PI_dict).T.reindex(node_order)) 
+    for metric in data[0].columns:
+        if metric == 'vehSum':
+            continue
+        combined_df = pd.DataFrame({f'{testDirList[i]}': data[i][metric] for i in range(len(data))})
+        # Plot grouped bar chart
+        combined_df.plot(kind='bar', figsize=(10, 6), edgecolor='black')
+        plt.title(f'Comparison of {metric}', fontsize=14)
+        plt.xlabel('Node', fontsize=12)
+        plt.ylabel(metric, fontsize=12)
+        plt.xticks(rotation=0, fontsize=10)
+        plt.legend(fontsize=10)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\traffic impact\\intersection\\{metric}.png')
+        plt.show()
+
+def plot_result_for_each_movement(saveDIR, testDirList):
+    data = []
+    for testDir in testDirList:
+        with open(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\PI_dict_move_3500.pkl', "rb") as f:
+            PI_dict = pickle.load(f)
+        grouped_data = {}
+        for key, value in PI_dict.items():
+            intId = key.split('_')[1]
+            moveId = key.split('_')[2] if len(key.split('_')) == 3 else (key.split('_')[2] + key.split('_')[3])
+            if intId not in grouped_data:
+                grouped_data[intId] = {}
+            grouped_data[intId][moveId] = value
+        nodeOrder = ['WL', 'WT1', 'WT2', 'NL', 'NT', 'EL', 'ET1', 'ET2', 'SL', 'ST']
+        for key, value in grouped_data.items():
+            grouped_data[key] = pd.DataFrame(value).T.reindex(nodeOrder)
+        data.append(grouped_data)
+
+    for ntx in data[0]:
+        for metric in data[0][ntx].columns:
+            if metric == 'vehSum':
+                continue
+            combined_df = pd.DataFrame({f'{testDirList[i]}': data[i][ntx][metric] for i in range(len(data))})
+            # Plot grouped bar chart
+            combined_df.plot(kind='bar', figsize=(10, 6), edgecolor='black')
+            plt.title(f'Comparison of {metric} in {ntx}', fontsize=14)
+            plt.xlabel('Node', fontsize=12)
+            plt.ylabel(metric, fontsize=12)
+            plt.xticks(rotation=0, fontsize=10)
+            plt.legend(fontsize=10)
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\traffic impact\\movement\\{ntx}\\{metric}.png')
+            # plt.show()
