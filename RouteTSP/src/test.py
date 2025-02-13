@@ -7,8 +7,8 @@ import numpy as np
 from tools import getBusIndBeforeJunc, nextNode
 rootPath = r'E:\workspace\python\BusRouteTSP'
 
-# timeStepList = np.arange(150, 170, 5)
-timeStepList = [1310]
+# timeStepList = np.arange(10, 3600, 100)
+timeStepList = [3210, 3310]
 for timeStep in timeStepList:
     with open(f"{rootPath}\\RouteTSP\\result\\inputData\\time={timeStep}.pkl", "rb") as f:
         inputDict = pickle.load(f)
@@ -16,7 +16,7 @@ for timeStep in timeStepList:
         I = inputDict['I']
     with open(f"{rootPath}\\RouteTSP\\result\\outputData\\time={timeStep}.pkl", "rb") as f:
         outputDict = pickle.load(f)
-    tlsPlan, busArrTimePlan, theta = optimize(**inputDict)
+    tlsPlan, busArrTimePlan, theta, t_coord = optimize(**inputDict)
     # busArrTimePlan = [[plan[0][1:] + timeStep, plan[1][1:]] for plan in busArrTimePlan]
     pass
 
@@ -28,7 +28,7 @@ for timeStep in timeStepList:
         t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
         r = np.array([busArrTimePlan[ind][0, 2*i + 2 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
         t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd]) - timeStep
-        tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], busInd, **inputDict)
+        tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], t_coord[i], busInd, **inputDict)
         tlsPlan_.append(tlsPlani_)
         for n in busInd:
             if len(busArrTimePlan_[n][0]) == 1:
@@ -37,6 +37,7 @@ for timeStep in timeStepList:
                     busArrTimePlan_[n] = np.append(busArrTimePlan_[n], plan, axis=1)
             busArrTimePlan_[n] = np.append(busArrTimePlan_[n], busArrTimePlani_[n - busInd[0]], axis=1)
     busArrTimePlan_ = [np.array([plan[0] + timeStep, plan[1]]) for plan in busArrTimePlan_]
+
     pass
 
 print('Output in main.py:')

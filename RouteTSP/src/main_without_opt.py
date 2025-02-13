@@ -24,7 +24,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 2900
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
@@ -36,10 +36,10 @@ PLANNED_BUS_NUM = 6
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
-BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
-BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-OFFSET = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
-VOLUME = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\volume.npy')
+BG_PHASE_SEQ = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_SEQ.npy')
+BG_PHASE_LEN = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_LEN.npy')
+OFFSET = np.load(f'{rootPath}\\tools\\result\\offset.npy')
+VOLUME = np.load(f'{rootPath}\\tools\\result\\volume.npy')
 S = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
@@ -64,7 +64,7 @@ BUS_DEP_HW = 2*60
 V_MAX = 12
 Ts_means = 25
 Ts_devs = 10
-np.random.seed(0)
+np.random.seed(1)
 # Z = np.random.normal(0, 1, (100, 6))
 # Z[0, 0] = 0
 Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
@@ -209,8 +209,6 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
-        if timeStep == 62:
-            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for busId in busIdList:
@@ -241,11 +239,11 @@ class sumoEnv:
             sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)
         for vehId in vehIdList:
             if vehId not in sumoEnv.runningVehDict:
-                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None, 'route': traci.vehicle.getRoute(vehId)}})
+                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None, 'route': traci.vehicle.getRoute(vehId),
+                                                       'traj': [tuple([timeStep]) + traci.vehicle.getPosition(vehId)]}})
             else:
-                if vehId == 'f_0_0.0' and traci.vehicle.getPosition(vehId)[0] > 298:
-                    pass
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
+                sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
                 # sumoEnv.runningVehDict[vehId]['departPos'] = traci.vehicle.getPosition(vehId)
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 

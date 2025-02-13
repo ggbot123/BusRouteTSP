@@ -1,4 +1,4 @@
-from tools import plot_result, plot_result_for_each_intersection, plot_result_for_each_movement
+from tools import plot_result, plot_result_for_each_intersection, plot_result_for_each_movement, plot_result_for_route
 
 if __name__ == '__main__':
     testDirList = ['blank_exact', 'TSP_only_ref12', 'SA_only', 'origin_exact']
@@ -17,7 +17,12 @@ if __name__ == '__main__':
     saveDIR = 'Ts30_dev10_max12_avg10_noQ_lowV'
     Algo_name = ['Blank', 'Vanilla TSP-SA', 'TSP-SA + SP']
 
-    testDirList = ['blank_test', 'origin_test', 'SP_test']
+    # testDirList = ['blank_test', 'origin_test', 'SP_test']
+    # testDirList = ['blank_test', 'SP_test']
+    testDirList = ['blank_test']
+    testDirList = ['origin_test_YP']
+    testDirList = ['origin_test']
+
     saveDIR = 'test'
     Algo_name = ['Blank', 'Vanilla TSP-SA', 'TSP-SA + SP']
 
@@ -25,5 +30,9 @@ if __name__ == '__main__':
     yAxis_name = ['Deviation (s)', 'Std Var of Deviation (s)', 'Late Rate (%)', 'Std Var of Time Headway (s)']
     
     # plot_result(saveDIR, testDirList, PI_name, yAxis_name, Algo_name)
-    plot_result_for_each_intersection(saveDIR, testDirList)
-    plot_result_for_each_movement(saveDIR, testDirList)
+    # plot_result_for_each_intersection(saveDIR, testDirList)
+    # plot_result_for_each_movement(saveDIR, testDirList)
+
+    route = "('np1_nt1', 'nt1_nt2', 'nt2_nt3', 'nt3_nt4', 'nt4_nt5', 'nt5_np12')"
+    phase = 2
+    plot_result_for_route(testDirList, route, phase)

@@ -12,12 +12,11 @@ import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode
+from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode, calOffsetForCoordPhase
 from optimize_new import optimize
 from local_SP import local_SP
 
-# testDir = 'SP_avg9_max12_Ts30_dev10_noQ_lowV'
-testDir = 'SP_test'
+testDir = 'SP_test_14'
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
 sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -26,7 +25,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 2900
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
@@ -38,10 +37,10 @@ PLANNED_BUS_NUM = 5
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
-BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
-BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-OFFSET = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
-VOLUME = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\volume.npy')
+BG_PHASE_SEQ = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_SEQ.npy')
+BG_PHASE_LEN = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_LEN.npy')
+OFFSET = np.load(f'{rootPath}\\tools\\result\\offset.npy')
+VOLUME = np.load(f'{rootPath}\\tools\\result\\volume.npy')
 S = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
@@ -67,9 +66,9 @@ V_MAX = 12
 V_MAX_ACT = 13
 Ts_means = 25
 Ts_devs = 10
-np.random.seed(0)
+np.random.seed(1)
 # Z = np.random.normal(0, 1, (100, 6))
-Z = np.random.uniform(Ts_means-10, Ts_means+10, (100, 6))
+Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
 # Z[0, 0] = 0
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
 TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
@@ -214,8 +213,6 @@ class sumoEnv:
         sumoEnv.tlsPlan = [np.array([BG_PHASE_LEN[i] for _ in range(PLANNED_CYCLE_NUM)]) for i in range(len(BG_PHASE_LEN))]
 
     def update(self, vehIdList, timeStep):
-        if timeStep == 1400:
-            pass
         busIdList = [vehId for vehId in vehIdList if vehId[0] != 'f']
         sumoEnv.runningBusDict = {key: veh for key, veh in sumoEnv.runningBusDict.items() if key in busIdList}
         for busId in busIdList:
@@ -247,9 +244,11 @@ class sumoEnv:
             sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)
         for vehId in vehIdList:
             if vehId not in sumoEnv.runningVehDict:
-                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None}})
+                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None, 'route': traci.vehicle.getRoute(vehId),
+                                                       'traj': [tuple([timeStep]) + traci.vehicle.getPosition(vehId)]}})
             else:
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
+                sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 
     def genInput(self, timeStep):
@@ -261,13 +260,12 @@ class sumoEnv:
         # runningBusNum = len(sumoEnv.runningBusListSorted)
         # N = min(PLANNED_BUS_NUM + runningBusNum, 3)
         N = PLANNED_BUS_NUM
+        offset_coord = calOffsetForCoordPhase(OFFSET, BG_PHASE_LEN, BG_PHASE_SEQ, BG_CYCLE_LEN, COORD_PHASE)
 
         inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': N, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
-                     'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
-                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
-                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX,
-                     'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
-                    }
+                     'offset': offset_coord, 'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
+                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR, 'POS': POS_JUNC,
+                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))}
         # inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
         inputDict['V_ij'] = VOLUME
         inputDict['S_ij'] = S
@@ -306,7 +304,7 @@ class sumoEnv:
             return
         # 调用MRTSP-SA算法
         inputDict = self.genInput(timeStep)
-        _, busArrTimePlan, theta = optimize(**inputDict)
+        _, busArrTimePlan, theta, t_coord = optimize(**inputDict)
         busArrTimePlan = [np.array(plan) for plan in busArrTimePlan]
         sumoEnv.tlsPlan = []
         sumoEnv.busArrTimePlan = [plan[:, 0].reshape(-1, 1) for plan in busArrTimePlan]
@@ -321,9 +319,9 @@ class sumoEnv:
         for i in range(I):
             busInd = getBusIndBeforeJunc(p_bus_0, i)
             t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            r = np.array([busArrTimePlan[ind][0, 2*(i+1) - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
+            # r = np.array([busArrTimePlan[ind][0, 2*(i+1) - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
             t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], busInd, **inputDict)
+            tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], t_coord[i], busInd, **inputDict)
             sumoEnv.tlsPlan.append(tlsPlani_)
             for n in busInd:
                 if len(sumoEnv.busArrTimePlan[n][0]) == 1:

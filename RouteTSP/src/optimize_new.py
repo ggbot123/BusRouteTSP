@@ -19,6 +19,14 @@ def optimize(**kwargs):
                 tls_curr_T = kwargs[key]
             elif key == 'tls_curr_t':
                 tls_curr_t = kwargs[key]
+            elif key == 'J':
+                J = kwargs[key]
+            elif key == 'J_first':
+                J_first = kwargs[key]
+            elif key == 'J_last':
+                J_last = kwargs[key]
+            elif key == 'J_barrier':
+                J_barrier = kwargs[key]
             else:
                 exec(f'{key} = np.{repr(value)}', globals())
     FILENAME = f'{rootPath}\\RouteTSP\\result\\Rolling\\%d.png' % cnt
@@ -136,7 +144,15 @@ def optimize(**kwargs):
                                 model.addConstr(t[i, j_next, k + 1] == t[i, j, k] + g[i, j, k] + YR)
                         if j in J_barrier[i][0]:
                             j_oth = J_barrier[i][1][np.where(J_barrier[i][0] == j)][0]
-                            model.addConstr(t[i, j, k] == t[i, j_oth, k])                   
+                            model.addConstr(t[i, j, k] == t[i, j_oth, k])
+                        if j in J_coord:
+                            offset_dev = 8 if k == len(tls_pad_T[i]) else 5
+                            if l == 0 and i > 0:
+                                model.addConstr(t[i, j, k] - t[i-1, j, k] <= offset[l, i] - offset[l, i-1] + offset_dev)
+                                model.addConstr(t[i, j, k] - t[i-1, j, k] >= offset[l, i] - offset[l, i-1] - offset_dev)
+                            if l == 1 and i < I - 1:
+                                model.addConstr(t[i, j, k] - t[i+1, j, k-1] <= offset[l, i] - offset[l, i+1] + offset_dev)
+                                model.addConstr(t[i, j, k] - t[i+1, j, k-1] >= offset[l, i] - offset[l, i+1] - offset_dev)
                         # 目标函数辅助约束
                         model.addConstr(y[i, j, k] == T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
                         # model.addConstr(y[i, j, k] >= T_opt[i][np.where(J[i] == j)][0] - g[i, j, k] - YR)
@@ -225,6 +241,7 @@ def optimize(**kwargs):
         T_sol = []
         Traj_sol = [[[], []] for _ in range(N)]
         theta_ = np.zeros([I, K + K_ini, N])
+        t_coord = np.zeros([I, 2, K + K_ini])
         for i in range(I):
             T_sol_i = []
             for k in range((len(tls_pad_T[i]) - 1), (K + K_ini)):
@@ -232,6 +249,7 @@ def optimize(**kwargs):
                 T_sol_i.append(Tk)
             for l in [0, 1]:
                 T_sol_i[0][l][0:(j_curr[i][l] + 1)] -= tls_pad_T[i][-1][l][0:(j_curr[i][l] + 1)]
+                t_coord[i, l, :] = [t[i, J_coord[l], k].x for k in range(K + K_ini)]
             T_sol.append(T_sol_i)
         for n in range(N):
             traj_t, traj_x = [], []
@@ -274,5 +292,5 @@ def optimize(**kwargs):
                 print(f"Infeasible constraint: {constr.ConstrName}")
         print('未找到最优解。')
 
-    return T_sol, Traj_sol, theta_
-    # return T_sol, Traj_sol
+    # return T_sol, Traj_sol, theta_
+    return T_sol, Traj_sol, theta_, t_coord

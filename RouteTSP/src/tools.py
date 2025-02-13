@@ -11,7 +11,7 @@ from tqdm import tqdm
 from bisect import bisect_left
 import xml.etree.ElementTree as ET
 import pickle
-import re
+import ast
 
 # phaseDict = {1: 12, 2: 11, 3: 9, 4: 8, 5: 6, 6: 5, 7: 3, 8: 2}
 phaseDict = {1: [7], 2: [12, 13], 3: [10], 4: [2], 5: [14], 6: [5, 6], 7: [3], 8: [9]}
@@ -123,6 +123,21 @@ def getBusOrder(busId, arr):
     order = arr.index(busId)
     return order
     
+def calOffsetForCoordPhase(OFFSET, BG_PHASE_LEN, BG_PHASE_SEQ, BG_CYCLE_LEN, COORD_PHASE):
+    offset_ib = np.zeros_like(OFFSET)
+    for i in range(len(OFFSET)-1, -1, -1):
+        offset_ib[i] = (OFFSET[i] - OFFSET[-1]) % BG_CYCLE_LEN
+        if i + 1 < len(OFFSET) and offset_ib[i] < offset_ib[i+1]:
+            offset_ib[i] += BG_CYCLE_LEN * (1 + int((offset_ib[i+1] - offset_ib[i]) / BG_CYCLE_LEN))
+    offset_coord = np.array([OFFSET, offset_ib])
+    for l in range(2):
+        for i in range(len(OFFSET)):
+            ind = np.where(BG_PHASE_SEQ[i, l, :] == COORD_PHASE[l])[0][0]
+            offset_coord[l, i] += BG_PHASE_LEN[i, l, :ind].sum()
+    offset_coord[0, :] -= offset_coord[0, 0]
+    offset_coord[1, :] -= offset_coord[1, -1]
+    return offset_coord
+
 def savePlan(timeStep, tlsPlan, busArrTimePlan, cnt):
     # 定义要保存的文件路径
     file_path = f"{rootPath}\\RouteTSP\\result\\optimizer_output\\{cnt}.txt"
@@ -322,7 +337,7 @@ def local_SP_plot(timeStep, tlsPlan, busArrPlan, busPhasePos, PER_BOARD_DUR, V_M
     # plt.show()
     return fail_cnt
 
-def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIMTIME):
+def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIMTIME, v_avg):
     INI = -10000
     def calBusArrTimeDev(busArrTime, TIMETABLE):
         mask = busArrTime != INI
@@ -356,17 +371,35 @@ def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIM
         dev = tlsPlan[padCycleNum:] - np.broadcast_to(bgPlan, tlsPlan[padCycleNum:].shape)
         return np.sum(np.abs(dev)) / cycleNum
     
-    def cal_veh_delay(SIMTIME, testDir):
+    def cal_veh_delay(SIMTIME, testDir, v_avg):
+        def calculate_route_distance(route_tuple, v_avg):
+            route_tuple = ast.literal_eval(route_tuple)
+            dist_dict = {'np1_nt1': 500, 'np2_nt1': 500, 'np3_nt1': 500, 'nt1_nt2': 700, 'nt1_np1': 500, 'nt1_np2': 500, 'nt1_np3': 500, 'nt2_nt1': 700,
+                     'np4_nt2': 500, 'np5_nt2': 500, 'nt2_nt3': 640, 'nt2_np4': 500, 'nt2_np5': 500, 'nt3_nt2': 640,
+                     'np6_nt3': 500, 'np7_nt3': 500, 'nt3_nt4': 560, 'nt3_np6': 500, 'nt3_np7': 500, 'nt4_nt3': 560,
+                     'np8_nt4': 500, 'np9_nt4': 500, 'nt4_nt5': 670, 'nt4_np8': 500, 'nt4_np9': 500, 'nt5_nt4': 670,
+                     'np10_nt5': 500, 'np11_nt5': 500, 'nt5_np12': 500, 'nt5_np10': 500, 'nt5_np11': 500, 'np12_nt5': 500}
+            return sum(dist_dict.get(route, 0) for route in route_tuple)/v_avg
         veh_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay.csv'
         veh_df = pd.read_csv(veh_file)
         veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T.dropna()
         veh_df['arrive'] = pd.to_numeric(veh_df['arrive'], errors='coerce')  # 将无法转换的值变为 NaN
         veh_df['depart'] = pd.to_numeric(veh_df['depart'], errors='coerce')  # 将无法转换的值变为 NaN
         veh_df = veh_df[veh_df['depart'] < SIMTIME - 1]
+        # veh_df = veh_df[veh_df.index.str.startswith('f')]
         veh_num = len(veh_df)
         veh_arr = veh_df.iloc[:, 0]
         veh_dep = veh_df.iloc[:, 1]
         avg_delay = (veh_dep - veh_arr).mean()
+        veh_df['passingTime'] = veh_dep - veh_arr
+        # 按照 'routes' 列进行分组，并计算每组的均值
+        grouped = veh_df.groupby('route').agg(
+            avgPassingTime=('passingTime', 'mean'),
+            count=('route', 'size')
+        ).reset_index()
+        grouped['idealPassingTime'] = grouped['route'].apply(lambda x: calculate_route_distance(x, v_avg))
+        grouped['delay'] = grouped['avgPassingTime'] - grouped['idealPassingTime']
+        grouped.to_csv(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay_in_route.csv', index=False)
         return veh_num, avg_delay
     
     def cal_traffic_impact(testDir):
@@ -447,7 +480,7 @@ def performanceAnalysis(testDir, busArrTime, TIMETABLE, tlsPlanList, bgPlan, SIM
     TIMETABLE = TIMETABLE[:busArrTime.shape[0], :]
     busArrTimeDev, busArrTimeDevStd, lateRate = calBusArrTimeDev(busArrTime, TIMETABLE)
     busHeadwayVar = calBusHeadwayDev(busArrTime)
-    veh_num, avg_delay = cal_veh_delay(SIMTIME, testDir)
+    veh_num, avg_delay = cal_veh_delay(SIMTIME, testDir, v_avg)
     PI_dict_int, PI_dict_move, data_dict, veh_sum_total, avg_delay_total, avg_max_queue_length_total, max_max_queue_length_total, avg_halts_total = cal_traffic_impact(testDir)
 
     print(f"=========Performance Index for {testDir}=========")
@@ -589,3 +622,52 @@ def plot_result_for_each_movement(saveDIR, testDirList):
             plt.tight_layout()
             plt.savefig(f'{rootPath}\\RouteTSP\\result\\simulation result\\{saveDIR}\\traffic impact\\movement\\{ntx}\\{metric}.png')
             # plt.show()
+
+def plot_result_for_route(testDirList, route, phase):
+    for testDir in testDirList:
+        veh_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\veh_delay.csv'
+        veh_df = pd.read_csv(veh_file)
+        veh_df = veh_df.set_index(veh_df.columns[0], drop=True).T.dropna()
+        veh_df = veh_df[veh_df['route'] == route]
+        
+        fig, ax1 = plt.subplots(figsize=(10, 8))
+        # 遍历 DataFrame 的每一行，提取轨迹并绘制
+        for i, row in veh_df.iterrows():
+            row['traj'] = ast.literal_eval(row['traj'])
+            t_values = [point[0] for point in row['traj']]
+            x_values = [point[1] for point in row['traj']]
+            color = 'blue' if row.name.startswith('f') else 'purple'
+            plt.plot(t_values, x_values, color=color, linewidth=1)
+        
+        tls_state_file = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsState_profile.csv'
+        tls_state_df = pd.read_csv(tls_state_file)
+        time_range = tls_state_df.iloc[:, 0].values
+        # 1. 预处理信号灯状态数据
+        tls_state_df = tls_state_df.iloc[:, 1:]  # 跳过第一列（时间列）
+        num_intersections = len(tls_state_df.columns)
+        num_time_points = len(tls_state_df)
+        # 将信号灯状态分解为字符数组
+        phase = phaseDict[phase][0] - 1
+        tls_states = np.array([[state[phase] for state in tls_state_df[col].values] 
+                            for col in tls_state_df.columns])
+        # 定义颜色映射
+        color_map = {'r': 'red', 'G': 'green', 'y': 'yellow'}
+        lines = []
+        colors = []
+        # 为每个交叉口生成线段集合
+        POS = np.array(posJunc).cumsum()
+        for i in range(num_intersections):
+            for j in range(1, num_time_points):
+                lines.append([(time_range[j-1], POS[i]), (time_range[j], POS[i])])
+                colors.append(color_map[tls_states[i][j]])
+        # 使用 LineCollection 绘制信号灯状态
+        lc = LineCollection(lines, colors=colors, linewidths=2)
+        ax1.add_collection(lc)
+
+        # 设置坐标轴标签和标题
+        plt.xlabel('Time (t)')
+        plt.ylabel('X (position)')
+        plt.title('All Trajectories')
+        plt.grid(True)
+        plt.savefig(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\traj\\{route}.svg', dpi=300, format="svg")
+        plt.show()

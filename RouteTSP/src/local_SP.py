@@ -5,7 +5,7 @@ rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 from tools import round_and_adjust, local_SP_plot
 
-def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
+def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
     for key, value in kwargs.items():
         try:
             exec(f'{key} = {repr(value)}', globals())
@@ -22,23 +22,32 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
                 tls_curr_t = kwargs[key][id]
             elif key == 'p_bus_0':
                 p_bus_0 = kwargs[key][busInd]
+            elif key == 'J':
+                J = kwargs[key]
+            elif key == 'J_first':
+                J_first = kwargs[key]
+            elif key == 'J_last':
+                J_last = kwargs[key]
+            elif key == 'J_barrier':
+                J_barrier = kwargs[key]
             else:
                 exec(f'{key} = np.{repr(value)}', globals())
     N = len(busInd)
     k_tar = np.where(np.abs(theta - 1) < 0.01)[0]
     M = 100000
     INI = -10000
+    MAX_DEV = 10
     t_ini = np.flip(np.flip(np.sum(np.array(tls_pad_T)[:, 0, :], axis=-1)).cumsum())
     t_lb = -t_ini[0]
     tls_pad_t = np.insert(np.delete(tls_pad_T, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
 
     # 随机变量样本生成：1000个样本，每个样本是长度为N的向量，服从N(0, 1)
     num_samples = 50  # 样本数量
-    np.random.seed(0)
+    np.random.seed(1)
     Ts_means = T_board[id]
     Ts_devs = 10
     # Z = np.random.normal(0, 1, (num_samples, I + 1))
-    Z = np.random.uniform(Ts_means-10, Ts_means+10, (num_samples, I + 1))
+    Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (num_samples, I + 1))
     Ts = Z
     # Ts = np.maximum(Ts_means + Z * Ts_devs, 0*np.ones_like(Ts_means))
     # Ts = np.maximum(Ts_means + Z * Ts_devs, 20*np.ones_like(Ts_means))
@@ -59,7 +68,7 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
         for j in np.concatenate((J[id][0], J[id][1])):
             t[j, k] = model.addVar(name=f't{j}{k}', lb=t_lb)
             g[j, k] = model.addVar(name=f'g{j}{k}', lb=0)
-            y[j, k] = model.addVar(name=f'y{j}{k}', lb=0, ub=10)
+            y[j, k] = model.addVar(name=f'y{j}{k}', lb=0, ub=MAX_DEV)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-gb.GRB.INFINITY)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-5, ub=5)
             # y[j, k] = model.addVar(name=f'y{j}{k}', lb=-10, ub=10)
@@ -118,10 +127,14 @@ def local_SP(id, t_arr, t_arr_next, theta, busInd, **kwargs):
                             model.addConstr(t[j_next, k + 1] == t[j, k] + g[j, k] + YR)
                     if j in J_barrier[id][0]:
                         j_oth = J_barrier[id][1][np.where(J_barrier[id][0] == j)][0]
-                        model.addConstr(t[j, k] == t[j_oth, k])                   
+                        model.addConstr(t[j, k] == t[j_oth, k])    
+                    if j in J_coord:
+                        offset_dev = 3 if k == len(tls_pad_T) else 0
+                        model.addConstr(t[j, k] <= t_coord[l, k] + offset_dev)
+                        model.addConstr(t[j, k] >= t_coord[l, k] - offset_dev)
                     # 目标函数辅助约束
                     model.addConstr(y[j, k] >= T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
-                    model.addConstr(T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR >= -10)
+                    model.addConstr(T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR >= -MAX_DEV)
                     # model.addConstr(y[j, k] == T_opt[id][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # model.addConstr(y[j, k] == tlsPlan[id][k - (len(tls_pad_T) - 1)][np.where(J[id] == j)][0] - g[j, k] - YR)
                     # 最小绿时约束

@@ -2,6 +2,7 @@ import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
 import os
+import shutil
 import traci
 import pandas as pd
 import numpy as np
@@ -11,19 +12,19 @@ import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr
+from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, calOffsetForCoordPhase
 from optimize_SA_only import optimize
 
-testDir = 'SA_only'
+testDir = 'SA_only_test_YP'
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
-# sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
+sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
 sumoBinary = "sumo"
 sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumocfg"]
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 3600
+SIM_TIME = 2600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
@@ -31,14 +32,14 @@ PLAN_STEP = 50
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
-PLANNED_BUS_NUM = 6
+PLANNED_BUS_NUM = 5
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
-BG_PHASE_SEQ = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_SEQ.npy')
-BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-OFFSET = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\offset.npy')
-VOLUME = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\volume.npy')
+BG_PHASE_SEQ = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_SEQ.npy')
+BG_PHASE_LEN = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_LEN.npy')
+OFFSET = np.load(f'{rootPath}\\tools\\result\\offset.npy')
+VOLUME = np.load(f'{rootPath}\\tools\\result\\volume.npy')
 S = np.array([[1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
               [1700, 3600, 1700, 1800, 1700, 3600, 1700, 1800],
@@ -60,15 +61,18 @@ L_APP = POS_JUNC - POS_STOP[:-1]
 L_DEP = POS_STOP[1:] - POS_JUNC
 V_AVG = 10
 BUS_DEP_HW = 2*60
-V_MAX = 15
+V_MAX = 12
+V_MAX_ACT = 14
 # V_MIN = 10
-Ts_means = 15
-Ts_devs = 0
+Ts_means = 25
+Ts_devs = 10
 np.random.seed(1)
-Z = np.random.normal(0, 1, (100, 6))
-Z[0, 0] = 0
+# Z = np.random.normal(0, 1, (100, 6))
+# Z[0, 0] = 0
+Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
+
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-TIMETABLE = np.array([20 + BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP - POS_STOP[0])/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
+TIMETABLE = np.array([BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
                       for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
@@ -107,8 +111,9 @@ class Bus(Vehicle):
                 # 查询站点编号
                 stopId = traci.vehicle.getStops(self.id, 1)[0].stoppingPlaceID
                 # 设置停站时间
-                Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 5*np.ones_like(Ts_means))
-                Ts = np.minimum(Ts, 25*np.ones_like(Ts_means))
+                # Ts = np.maximum(Ts_means + Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)] * Ts_devs, 15*np.ones_like(Ts_means))
+                # Ts = np.minimum(Ts, 35*np.ones_like(Ts_means))
+                Ts = Z[getIndfromId('bus', self.id), getIndfromId('stop', stopId)]
                 # traci.vehicle.setBusStop(self.id, stopId, duration=(MIN_STOP_DUR + PER_BOARD_DUR*sumoEnv.busStopDict[stopId].personNum))
                 traci.vehicle.setBusStop(self.id, stopId, duration=Ts)
                 self.atBusStop = stopId
@@ -147,7 +152,7 @@ class Bus(Vehicle):
             else:
                 speedRef = V_MAX
             # traci.vehicle.setSpeed(self.id, max(min(speedRef, V_MAX), V_MIN))
-            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX))
+            traci.vehicle.setSpeed(self.id, min(speedRef, V_MAX_ACT))
 
 class BusStop:
     def __init__(self, stopId):
@@ -240,9 +245,11 @@ class sumoEnv:
             sumoEnv.volumeData[getIndfromId('det', detId)][-1] = traci.inductionloop.getIntervalVehicleNumber(detId)
         for vehId in vehIdList:
             if vehId not in sumoEnv.runningVehDict:
-                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None}})
+                sumoEnv.runningVehDict.update({vehId: {'arrive': timeStep, 'depart': None, 'route': traci.vehicle.getRoute(vehId),
+                                                       'traj': [tuple([timeStep]) + traci.vehicle.getPosition(vehId)]}})
             else:
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
+                sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 
     def genInput(self, timeStep):
@@ -251,13 +258,14 @@ class sumoEnv:
         minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
         maxRunningInd = getIndfromId('bus', (max([int(busId) for busId in sumoEnv.runningBusDict])))
         maxPlanInd = np.where(TIMETABLE[:, 0] > timeStep + (PLANNED_CYCLE_NUM - 1)*BG_CYCLE_LEN)[0][0]
+        # runningBusNum = len(sumoEnv.runningBusListSorted)
+        runningBusNum = 0
+        offset_coord = calOffsetForCoordPhase(OFFSET, BG_PHASE_LEN, BG_PHASE_SEQ, BG_CYCLE_LEN, COORD_PHASE)
         
-        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
-                     'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
-                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'POS': POS_JUNC, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR,
-                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX,
-                     'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))
-                    }
+        inputDict = {'I': len(sumoEnv.trafficLightDict), 'N': PLANNED_BUS_NUM + runningBusNum, 'K': PLANNED_CYCLE_NUM, 'K_ini': PAD_CYCLE_NUM, 'C': BG_CYCLE_LEN,
+                     'offset': offset_coord, 'J': BG_PHASE_SEQ, 'J_first': FIRST_PHASE, 'J_last': LAST_PHASE, 'J_barrier': BAR_PHASE, 'J_coord': COORD_PHASE, 'J_bus': BUS_PHASE,
+                     'T_opt': BG_PHASE_LEN, 't_opt': BG_PHASE_SPLIT, 'YR': YR, 'G_min': G_MIN, 'Xc': COEFF_XC, 'T_board': STOP_DUR, 'POS': POS_JUNC,
+                     'POS_stop': POS_STOP, 'L_app': L_APP, 'L_dep': L_DEP, 'v_avg': V_AVG, 'v_max': V_MAX, 'cnt': int(timeStep/(SIM_STEP*PLAN_STEP))}
         # inputDict['V_ij'] = 3600/E1_INT * np.mean(sumoEnv.volumeData, axis=-1)
         inputDict['V_ij'] = VOLUME
         inputDict['S_ij'] = S
@@ -353,3 +361,7 @@ if __name__ == '__main__':
     print("Ploting...\n")
     myplot(testDir, POS_JUNC, POS_STOP, BUS_PHASE[0], TIMETABLE)
     traci.close()
+
+    xmlE2FileSrcPath = f'{rootPath}\\ScenarioGenerator\\Scenario\\output_E2.xml'
+    xmlE2FileDstPath = f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\output_E2_3500.xml'
+    shutil.copy(xmlE2FileSrcPath, xmlE2FileDstPath)

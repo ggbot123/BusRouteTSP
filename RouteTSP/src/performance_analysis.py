@@ -24,21 +24,24 @@ if __name__ == '__main__':
     # testDirList = ['blank_avg10_max12_noQ_lowV', 'origin_avg10_max12_Ts30_dev10_noQ_lowV', 'SP_avg10_max12_Ts30_dev10_noQ_lowV']
     # testDirList = ['blank_avg9_max12_noQ_lowV', 'origin_avg9_max12_Ts30_dev10_noQ_lowV', 'SP_avg9_max12_Ts30_dev10_noQ_lowV_50']
     testDirList = ['blank_test', 'origin_test', 'SP_test']
+    testDirList = ['blank_test', 'origin_test_YP_14', 'SA_only_test_YP', 'SP_test_14']
+    # testDirList = ['blank_test']
 
     for testDir in testDirList:
-        SIMTIME = 3600
-        busArrTime = np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\case study\\{testDir}\\busArrTime.npy')
+        SIMTIME = 2900
+        busArrTime = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTime.npy')
         # BUS_DEP_HW = 2*60
         BUS_DEP_HW = 2*60
         POS_JUNC = np.array(posJunc).cumsum()
         POS_STOP = np.concatenate([[0], POS_JUNC]) + np.array(posSet[0])
         V_AVG = 10
+        V_MAX = 15
         STOP_DUR = 30*np.array([1, 1, 1, 1, 1, 1])
         TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
-        BG_PHASE_LEN = np.load(r'E:\workspace\python\BusRouteTSP\tools\result\BG_PHASE_LEN.npy')
-        tlsPlanList = [np.load(f'E:\\workspace\\python\\BusRouteTSP\\RouteTSP\\result\\case study\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
+        BG_PHASE_LEN = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_LEN.npy')
+        tlsPlanList = [np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
         busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, delay, PI_dict_int, PI_dict_move, data_dict = performanceAnalysis(
-            testDir, busArrTime, TIMETABLE, tlsPlanList, BG_PHASE_LEN, SIMTIME)
+            testDir, busArrTime, TIMETABLE, tlsPlanList, BG_PHASE_LEN, SIMTIME, V_MAX)
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDev.npy', np.array(busArrTimeDev))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTimeDevStd.npy', np.array(busArrTimeDevStd))
         np.save(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\lateRate.npy', np.array(lateRate))
