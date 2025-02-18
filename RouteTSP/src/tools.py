@@ -58,6 +58,8 @@ def getIniTlsCurr(T, t):
 
 # T：K*(2*4), K：周期，I：交叉口编号, 2：双环, 4：四相位
 def getSumoTLSProgram(J, T, YR):
+    if np.array_equal(T[0, :, :], np.zeros_like(T[0])):
+        T = T[1:, :, :]
     K = T.shape[0]
     YR_ = YR * np.ones(T.shape)
     Tplan = np.zeros(T.shape[:-1] + (T.shape[-1]*2, ))
@@ -68,8 +70,6 @@ def getSumoTLSProgram(J, T, YR):
             if T[0, i, j] < YR:
                 Tplan[0, i, 2*j] = 0
                 Tplan[0, i, 2*j + 1] = T[0, i, j]
-                if T[0, i, j] > 0:
-                    YRfirst = 1
     tPlan = np.insert(np.delete(Tplan, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
     # print(tPlan)
     RGYplan = [[] for _ in range(K)]
@@ -83,7 +83,7 @@ def getSumoTLSProgram(J, T, YR):
         tSplit = np.sort(np.unique(tk.flatten(), axis=-1))
         Tsplit = np.diff(tSplit)
         for j, t in enumerate(tSplit):
-            phaseDur = Tsplit[j] if j < len(Tsplit) else YR
+            phaseDur = Tsplit[j] if j < len(Tsplit) else Tplan[k, 0, -1]
             # RGY = 'GrrGrrrGrrGrrr'
             RGY = 'GrrrrrrGrrrrrr'
             for b in [0, 1]:
@@ -671,3 +671,10 @@ def plot_result_for_route(testDirList, route, phase):
         plt.grid(True)
         plt.savefig(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\traj\\{route}.svg', dpi=300, format="svg")
         plt.show()
+
+if __name__ == '__main__':
+    Ti = [[[0, 0, 0, 3], [0, 0, 0, 3]],
+          [[15, 33, 12, 34], [15, 33, 13, 33]],
+          [[15, 39, 12, 34], [17, 37, 13, 33]]]
+    RGYplan = getSumoTLSProgram(np.array([[1, 2, 3, 4], [5, 6, 7, 8]]), np.array(Ti), 4)
+    pass

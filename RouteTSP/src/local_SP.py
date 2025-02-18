@@ -129,7 +129,7 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
                         j_oth = J_barrier[id][1][np.where(J_barrier[id][0] == j)][0]
                         model.addConstr(t[j, k] == t[j_oth, k])    
                     if j in J_coord:
-                        offset_dev = 3 if k == len(tls_pad_T) else 0
+                        offset_dev = 0 if k == len(tls_pad_T) else 0
                         model.addConstr(t[j, k] <= t_coord[l, k] + offset_dev)
                         model.addConstr(t[j, k] >= t_coord[l, k] - offset_dev)
                     # 目标函数辅助约束

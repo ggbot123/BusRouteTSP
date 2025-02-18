@@ -24,11 +24,13 @@ if __name__ == '__main__':
     # testDirList = ['blank_avg10_max12_noQ_lowV', 'origin_avg10_max12_Ts30_dev10_noQ_lowV', 'SP_avg10_max12_Ts30_dev10_noQ_lowV']
     # testDirList = ['blank_avg9_max12_noQ_lowV', 'origin_avg9_max12_Ts30_dev10_noQ_lowV', 'SP_avg9_max12_Ts30_dev10_noQ_lowV_50']
     testDirList = ['blank_test', 'origin_test', 'SP_test']
-    testDirList = ['blank_test', 'origin_test_YP_14', 'SA_only_test_YP', 'SP_test_14']
+    testDirList = ['blank_test', 'origin_test_YP', 'SP_test_YP']
+    testDirList = ['SP_test_YP8520_wc0.1', 'SP_test_YP8520_wc0.3', 'SP_test_YP8500_wc0.3']
+    testDirList = ['blank_test', 'origin_debug', 'SP_test_YP8500_wc0.3']
     # testDirList = ['blank_test']
 
     for testDir in testDirList:
-        SIMTIME = 2900
+        SIMTIME = 3600
         busArrTime = np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\busArrTime.npy')
         # BUS_DEP_HW = 2*60
         BUS_DEP_HW = 2*60

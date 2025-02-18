@@ -16,7 +16,8 @@ from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr,
 from optimize_new import optimize
 from local_SP import local_SP
 
-testDir = 'SP_test_14'
+testDir = 'SP_test_pre'
+saveTraj = False
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
 sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -25,7 +26,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 2900
+SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
@@ -248,7 +249,8 @@ class sumoEnv:
                                                        'traj': [tuple([timeStep]) + traci.vehicle.getPosition(vehId)]}})
             else:
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
-                sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
+                if saveTraj:
+                    sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 
     def genInput(self, timeStep):

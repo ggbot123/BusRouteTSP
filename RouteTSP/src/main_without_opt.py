@@ -24,7 +24,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 2900
+SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10

@@ -15,7 +15,8 @@ from ScenarioGenerator.nodeGen import posJunc
 from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, calOffsetForCoordPhase
 from optimize_new import optimize
 
-testDir = 'origin_test_YP_14'
+testDir = 'origin_debug'
+saveTraj = False
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
 sumoBinary = "E:\\software\\SUMO\\bin\\sumo-gui.exe"
@@ -24,7 +25,7 @@ sumoCmd = [sumoBinary, "-c", f"{rootPath}\\ScenarioGenerator\\Scenario\\exp.sumo
 logFile = f'{rootPath}\\RouteTSP\\log\\sys_%s.log' % datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d-%H-%M')
 logging.basicConfig(filename=logFile, level=logging.INFO)
 logging.info('Simulation start')
-SIM_TIME = 2900
+SIM_TIME = 3600
 SIM_STEP = 1
 LOWER_CONTROL_STEP = 1
 PLAN_START = 10
@@ -32,7 +33,7 @@ PLAN_STEP = 50
 BUS_DEP_INI = 0
 MIN_STOP_DUR = 10
 PER_BOARD_DUR = 3
-PLANNED_BUS_NUM = 5
+PLANNED_BUS_NUM = 6
 PLANNED_CYCLE_NUM = 10
 PAD_CYCLE_NUM = 3
 BG_CYCLE_LEN = 100
@@ -249,7 +250,8 @@ class sumoEnv:
                                                        'traj': [tuple([timeStep]) + traci.vehicle.getPosition(vehId)]}})
             else:
                 sumoEnv.runningVehDict[vehId]['depart'] = timeStep
-                sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
+                if saveTraj:
+                    sumoEnv.runningVehDict[vehId]['traj'].append(tuple([timeStep]) + traci.vehicle.getPosition(vehId))
         sumoEnv.allVehDict.update(sumoEnv.runningVehDict)
 
     def genInput(self, timeStep):
@@ -309,8 +311,16 @@ class sumoEnv:
                 outputDict = {'tlsPlan': sumoEnv.tlsPlan, 'busArrPlan': sumoEnv.busArrTimePlan}
                 pickle.dump(outputDict, f)
         # 记录公交到达时刻规划结果
-        sumoEnv.busArrTimePlan = {str(getIndfromId('bus', sumoEnv.runningBusListSorted[0].id) + i): [plan[0][1:] + timeStep, plan[1][1:]] 
-                                  for i, plan in enumerate(sumoEnv.busArrTimePlan)}
+        minRunningInd = getIndfromId('bus', (min([int(busId) for busId in sumoEnv.runningBusDict])))
+        busArrTimePlan = {}
+        for i, plan in enumerate(sumoEnv.busArrTimePlan):
+            if i < len(sumoEnv.runningBusListSorted):
+                busArrTimePlan[str(getIndfromId('bus', sumoEnv.runningBusListSorted[i].id))] = [plan[0][1:] + timeStep, plan[1][1:]]
+            else:
+                busArrTimePlan[str(minRunningInd + i)] = [plan[0][1:] + timeStep, plan[1][1:]]
+        sumoEnv.busArrTimePlan = busArrTimePlan
+        # sumoEnv.busArrTimePlan = {str(getIndfromId('bus', sumoEnv.runningBusListSorted[0].id) + i): [plan[0][1:] + timeStep, plan[1][1:]] 
+        #                           for i, plan in enumerate(sumoEnv.busArrTimePlan)}
         # 更新信号配时计划
         for tls in sumoEnv.trafficLightDict.values():
             tls.control()

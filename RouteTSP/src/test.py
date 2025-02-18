@@ -8,7 +8,7 @@ from tools import getBusIndBeforeJunc, nextNode
 rootPath = r'E:\workspace\python\BusRouteTSP'
 
 # timeStepList = np.arange(10, 3600, 100)
-timeStepList = [3210, 3310]
+timeStepList = [1910, 2010]
 for timeStep in timeStepList:
     with open(f"{rootPath}\\RouteTSP\\result\\inputData\\time={timeStep}.pkl", "rb") as f:
         inputDict = pickle.load(f)

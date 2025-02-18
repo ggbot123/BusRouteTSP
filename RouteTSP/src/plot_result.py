@@ -20,8 +20,9 @@ if __name__ == '__main__':
     # testDirList = ['blank_test', 'origin_test', 'SP_test']
     # testDirList = ['blank_test', 'SP_test']
     testDirList = ['blank_test']
-    testDirList = ['origin_test_YP']
-    testDirList = ['origin_test']
+    # testDirList = ['origin_test_YP']
+    # testDirList = ['origin_test']
+    testDirList = ['SP_test_YP8500_wc0.3']
 
     saveDIR = 'test'
     Algo_name = ['Blank', 'Vanilla TSP-SA', 'TSP-SA + SP']
