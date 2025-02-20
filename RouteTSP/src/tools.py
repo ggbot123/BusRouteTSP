@@ -40,6 +40,9 @@ def nextNode(p_bus):
     else:
         return 'JUNC'
 
+def getNextStopPos(p_bus):
+    return POS_STOP[np.where(p_bus < POS_STOP)[0][0]]
+
 def getIniTlsCurr(T, t):
     # 初始化结果数组
     result = np.zeros_like(T)

@@ -15,7 +15,7 @@ from ScenarioGenerator.nodeGen import posJunc
 from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, calOffsetForCoordPhase
 from optimize_new import optimize
 
-testDir = 'origin_debug'
+testDir = 'origin_test'
 saveTraj = False
 if not os.path.exists(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}'):
     os.makedirs(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}')
@@ -73,7 +73,7 @@ np.random.seed(1)
 Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
 
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-TIMETABLE = np.array([BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
+TIMETABLE = np.array([10 + BUS_DEP_INI + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() 
                       for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60

@@ -12,7 +12,7 @@ import pickle
 from tqdm import tqdm
 from ScenarioGenerator.busStopGen import posSet
 from ScenarioGenerator.nodeGen import posJunc
-from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode, calOffsetForCoordPhase
+from tools import getSumoTLSProgram, getIndfromId, myplot, RGY2J, getIniTlsCurr, getBusIndBeforeJunc, nextNode, calOffsetForCoordPhase, getNextStopPos
 from optimize_new import optimize
 from local_SP import local_SP
 
@@ -72,7 +72,7 @@ np.random.seed(1)
 Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (100, 6))
 # Z[0, 0] = 0
 STOP_DUR = (Ts_means + 5)*np.array([1, 1, 1, 1, 1, 1])
-TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
+TIMETABLE = np.array([10 + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
 DETBUFFERLEN = 10
 E1_INT = 60
 recordTimeList = np.arange(0, 3600, 5)
@@ -315,22 +315,30 @@ class sumoEnv:
         # N = min(runningBusNum + PLANNED_BUS_NUM, 3)
         N = PLANNED_BUS_NUM
         p_bus_0 = inputDict['p_bus_0'][:N]
+        # 添加最后一站的到站计划
         for n in range(N):
             if (p_bus_0[n] > POS_JUNC[I - 1]) and (p_bus_0[n] < POS_STOP[I]):
                 sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], busArrTimePlan[n][:, -1].reshape(-1, 1), axis=1)
-        for i in range(I):
+
+        t_arr_next = INI * np.ones(N)
+        busArrTimePlan_ = [[] for _ in range(N)]
+        for i in range(I-1, -1, -1):
             busInd = getBusIndBeforeJunc(p_bus_0, i)
             t_arr = np.array([busArrTimePlan[ind][0, 2*i + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            # r = np.array([busArrTimePlan[ind][0, 2*(i+1) - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            t_arr_next = np.array([busArrTimePlan[ind][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[ind][0]))] for ind in busInd])
-            tlsPlani_, busArrTimePlani_ = local_SP(i, t_arr, t_arr_next, theta[i], t_coord[i], busInd, **inputDict)
-            sumoEnv.tlsPlan.append(tlsPlani_)
             for n in busInd:
-                if len(sumoEnv.busArrTimePlan[n][0]) == 1:
-                    if nextNode(p_bus_0[n]) == 'STOP':
-                        plan = busArrTimePlan[n][:, 1].reshape(-1, 1)
-                        sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], plan, axis=1)
-                sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], busArrTimePlani_[n - busInd[0]], axis=1)
+                if t_arr_next[n] == INI:
+                    t_arr_next[n] = busArrTimePlan[n][0, 2*(i+1) + 1 - (2*I + 2 - len(busArrTimePlan[n][0]))]
+            tlsPlani_, busArrTimePlani_, t_arr_ = local_SP(i, t_arr, t_arr_next[busInd], theta[i], t_coord[i], busInd, **inputDict)
+            sumoEnv.tlsPlan.insert(0, tlsPlani_)
+            for n in busInd:
+                busArrTimePlan_[n].append(np.flip(busArrTimePlani_[n - busInd[0]], axis=1))
+                if len(sumoEnv.busArrTimePlan[n][0]) == 1 and nextNode(p_bus_0[n]) == 'STOP' and getNextStopPos(p_bus_0[n]) == POS_STOP[i]:
+                    sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], np.array([t_arr_[n - busInd[0]], POS_STOP[i]]).reshape(-1, 1), axis=1)
+                t_arr_next[n] = t_arr_[n - busInd[0]]
+        for n in range(len(sumoEnv.busArrTimePlan)):
+            if len(busArrTimePlan_[n]) > 0:
+                sumoEnv.busArrTimePlan[n] = np.append(sumoEnv.busArrTimePlan[n], np.flip(np.concatenate(np.array(busArrTimePlan_[n]), axis=1), axis=1), axis=1)
+            
         # 记录优化模型输出
         if timeStep in recordTimeList:
             with open(f"{rootPath}\\RouteTSP\\result\\outputData\\time={timeStep}.pkl", "wb") as f:

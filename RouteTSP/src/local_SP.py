@@ -3,9 +3,9 @@ import gurobipy as gb
 import sys
 rootPath = r'E:\workspace\python\BusRouteTSP'
 sys.path.append(rootPath)
-from tools import round_and_adjust, local_SP_plot
+from tools import round_and_adjust
 
-def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
+def local_SP(id, t_arr_upper, t_arr_next, theta, t_coord, busInd, **kwargs):
     for key, value in kwargs.items():
         try:
             exec(f'{key} = {repr(value)}', globals())
@@ -37,6 +37,7 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
     M = 100000
     INI = -10000
     MAX_DEV = 10
+    MAX_PRE = 5
     t_ini = np.flip(np.flip(np.sum(np.array(tls_pad_T)[:, 0, :], axis=-1)).cumsum())
     t_lb = -t_ini[0]
     tls_pad_t = np.insert(np.delete(tls_pad_T, -1, axis=-1), 0, 0, axis=-1).cumsum(axis=-1)
@@ -46,12 +47,7 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
     np.random.seed(1)
     Ts_means = T_board[id]
     Ts_devs = 10
-    # Z = np.random.normal(0, 1, (num_samples, I + 1))
-    Z = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (num_samples, I + 1))
-    Ts = Z
-    # Ts = np.maximum(Ts_means + Z * Ts_devs, 0*np.ones_like(Ts_means))
-    # Ts = np.maximum(Ts_means + Z * Ts_devs, 20*np.ones_like(Ts_means))
-    # Ts = np.minimum(Ts, 40*np.ones_like(Ts_means))
+    Ts = np.random.uniform(Ts_means-Ts_devs, Ts_means+Ts_devs, (num_samples, I + 1))
 
     # 创建Gurobi模型
     model = gb.Model("Local_SP")
@@ -59,6 +55,7 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
 
     # 决策变量-期望到达交叉口时刻r(n)
     r = model.addVars(N, lb=-gb.GRB.INFINITY, name="r")
+    t_arr = model.addVars(N,  lb=-gb.GRB.INFINITY, name=f't_arr')
 
     # 决策变量-信号配时t(j,k) & g(j,k)
     t = {}
@@ -77,10 +74,12 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
     r_act = model.addVars(num_samples, N, lb=-gb.GRB.INFINITY, name="r_act")
     t_arr_next_ = model.addVars(num_samples, N,  lb=-gb.GRB.INFINITY, name=f't_arr_next_')
     t_dev = model.addVars(num_samples, N, name=f't_dev')
-    beta = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta')
+    beta1 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta1')
+    beta2 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta2')
+    beta3 = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta3')
+    beta3a = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta3a')
+    beta3b = model.addVars(num_samples, N,  vtype=gb.GRB.BINARY, name=f'beta3b')
 
-    # 0-1变量 z(s) 表示每个样本是否满足机会约束
-    # z = model.addVars(num_samples, vtype=gb.GRB.BINARY, name="z")
 
     # 设置目标函数
     wc = 0.3
@@ -141,40 +140,63 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
                     model.addConstr(g[j, k] >= G_min)
                     model.addConstr(g[j, k] >= V_ij[id, (j-1)]*C/(S_ij[id, (j-1)]*Xc))
 
+    for n in range(N):
+        model.addConstr(t_arr[n] >= t_arr_upper[n] - MAX_PRE)
+        model.addConstr(t_arr[n] <= t_arr_upper[n])
+
     # 设置分段线性函数约束，使用 PWLConstr 表示每个样本的分段函数
     for i in range(num_samples):
         for n in range(N):
             if p_bus_0[n] < POS_stop[id] + 0.001:
+                L_app_left = L_app[id]
                 if np.abs(p_bus_0[n] - POS_stop[id]) < 0.001:
                     T_board_left = np.max([Ts[i, id] - T_board_past[busInd][n], 0])
                 else:
                     T_board_left = Ts[i, id]
                 # model.addConstr(r_act[i, n] == t_arr[n] + Ts[i, id] + L_app[id]/v_max)
-                if (id > 0) and (p_bus_0[n] > POS[id - 1]):
-                    t_arr_act = max(t_arr[n], (POS_stop[id] - p_bus_0[n])/v_max)
-                    model.addGenConstrPWL(r[n], r_act[i, n], 
-                                        [t_arr_act, (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1],
-                                        [(t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
-                else:
-                    model.addGenConstrPWL(r[n], r_act[i, n], 
-                                        [t_arr[n], (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1],
-                                        [(t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                # if (id > 0) and (p_bus_0[n] > POS[id - 1]):
+                #     t_arr_act = max(t_arr[n], (POS_stop[id] - p_bus_0[n])/v_max)
+                #     model.addGenConstrPWL(r[n], r_act[i, n], 
+                #                         [t_arr_act, (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1],
+                #                         [(t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max), (t_arr_act + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
+                # else:
+                #     model.addGenConstrPWL(r[n], r_act[i, n], 
+                #                         [t_arr[n], (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1],
+                #                         [(t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max), (t_arr[n] + T_board_left + L_app[id]/v_max) + 1], name=f"pwl_{i}_{n}")
                 
             elif p_bus_0[n] < POS[id]:
                 # model.addConstr(r_act[i, n] == t_arr[n] + T_board_left + L_app[id]/v_max)
-                model.addGenConstrPWL(r[n], r_act[i, n], 
-                                     [0, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1],
-                                     [(POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1], name=f"pwl_{i}_{n}")
+                # model.addGenConstrPWL(r[n], r_act[i, n], 
+                #                      [0, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1],
+                #                      [(POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max, (POS[id] - p_bus_0[n])/v_max + 1], name=f"pwl_{i}_{n}")
+                L_app_left = POS[id] - p_bus_0[n]
+                T_board_left = 0
+                
             else: 
                 continue
+            model.addConstr(beta1[i, n] + beta2[i, n] + beta3[i, n] == 1)
             for j in J_bus:
-                # beta = 0，表示放弃在给定窗口通过
-                model.addConstr(r_act[i, n] >= t[j, k_tar[n]] + g[j, k_tar[n]] - M * beta[i, n])
-                model.addConstr(r_act[i, n] <= t[j, k_tar[n] + 1] + M * beta[i, n])
-                # model.addConstr(r_act[i, n] >= t[j, k_tar[n]] - M * (1 - beta[i, n]))
-                model.addConstr(r_act[i, n] <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta[i, n]))
-                model.addConstr(t_arr_next_[i, n] == beta[i, n] * r_act[i, n] + (1 - beta[i, n]) * t[j, k_tar[n] + 1] + L_dep[id]/v_max)
-                model.addConstr(t_dev[i, n] >= t_arr_next_[i, n] - t_arr_next[n])
+                # beta1 = 1
+                model.addConstr(t_arr[n] + T_board_left + L_app_left/v_max >= 0.0001 + r[n] - M * (1 - beta1[i, n]))
+                model.addConstr(t_arr[n] + T_board_left + L_app_left/v_max <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta1[i, n]))
+                # beta2 = 1
+                model.addConstr(t_arr[n] + T_board_left + L_app_left/v_max <= r[n] + M * (1 - beta2[i, n]))
+                model.addConstr(r[n] <= t[j, k_tar[n]] + g[j, k_tar[n]] + M * (1 - beta2[i, n]))
+                # beta3 = 1
+                model.addConstr(t_arr[n] + T_board_left + L_app_left/v_max >= 0.0001 + t[j, k_tar[n]] + g[j, k_tar[n]] - M * (1 - beta3a[i, n]))
+                model.addConstr(r[n] >= 0.0001 + t[j, k_tar[n]] + g[j, k_tar[n]] - M * (1 - beta3b[i, n]))
+                model.addConstr(beta3[i, n] >= beta3a[i, n])
+                model.addConstr(beta3[i, n] >= beta3b[i, n])
+                model.addConstr(beta3[i, n] <= beta3a[i, n] + beta3b[i, n])
+                # 约束
+                model.addConstr(t_arr[n] + T_board_left + L_app_left/v_max <= t[j, k_tar[n] + 1])
+                model.addConstr(r[n] <= t[j, k_tar[n] + 1])
+                # 目标函数
+                model.addConstr(t_dev[i, n] >= beta1[i, n] * (t_arr[n] + T_board_left + L_app_left/v_max) + 
+                                            beta2[i, n] * r[n] + 
+                                            beta3[i, n] * t[j, k_tar[n] + 1] + 
+                                            L_dep[id]/v_max - t_arr_next[n])
+                # model.addConstr(t_dev[i, n] >= t_arr_next_[i, n] - t_arr_next[n])
 
     # 期望到达时刻约束
     model.addConstrs((r[n] <= t_arr_next[n] + 10 - L_dep[id]/v_max for n in range(N)), name="arrival_plan_max")
@@ -211,9 +233,11 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
         print("Solver runtime (seconds):", model.Runtime)
 
         busArrPlan = []
+        t_arr_ = []
         for n in range(N):
             traj = np.array([[r_opt[n], t_arr_next[n]], [POS[id], POS_stop[id + 1]]])
             busArrPlan.append(traj)
+            t_arr_.append(t_arr[n].X)
 
     else:
         # 计算 IIS
@@ -225,4 +249,4 @@ def local_SP(id, t_arr, t_arr_next, theta, t_coord, busInd, **kwargs):
             if constr.IISConstr:  # 标记为 IIS 的约束
                 print(f"Infeasible constraint: {constr.ConstrName}")
         print("Optimization failed.")
-    return T_sol, busArrPlan
+    return T_sol, busArrPlan, t_arr_

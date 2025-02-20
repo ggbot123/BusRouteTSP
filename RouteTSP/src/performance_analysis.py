@@ -28,6 +28,7 @@ if __name__ == '__main__':
     testDirList = ['SP_test_YP8520_wc0.1', 'SP_test_YP8520_wc0.3', 'SP_test_YP8500_wc0.3']
     testDirList = ['blank_test', 'origin_debug', 'SP_test_YP8500_wc0.3']
     # testDirList = ['blank_test']
+    testDirList = ['blank_test', 'origin_test', 'SP_test', 'SP_test_pre']
 
     for testDir in testDirList:
         SIMTIME = 3600
@@ -39,7 +40,7 @@ if __name__ == '__main__':
         V_AVG = 10
         V_MAX = 15
         STOP_DUR = 30*np.array([1, 1, 1, 1, 1, 1])
-        TIMETABLE = np.array([i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
+        TIMETABLE = np.array([10 + i*BUS_DEP_HW + (POS_STOP)/V_AVG + np.delete(np.insert(STOP_DUR, 0, 0), -1).cumsum() for i in range(100)])
         BG_PHASE_LEN = np.load(f'{rootPath}\\tools\\result\\BG_PHASE_LEN.npy')
         tlsPlanList = [np.load(f'{rootPath}\\RouteTSP\\result\\case study\\{testDir}\\tlsPlan_nt{i}.npy') for i in range(1, 6)]
         busArrTimeDev, busArrTimeDevStd, lateRate, busHeadwayVar, delay, PI_dict_int, PI_dict_move, data_dict = performanceAnalysis(
